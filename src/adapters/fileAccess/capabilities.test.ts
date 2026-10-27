@@ -10,7 +10,7 @@ describe("detectFileAccessCapabilities", () => {
       showDirectoryPicker: () => undefined,
       URL,
       document: {
-        createElement: () => undefined,
+        createElement: () => ({ webkitdirectory: false }),
         body: { appendChild: () => undefined }
       }
     };
@@ -19,6 +19,7 @@ describe("detectFileAccessCapabilities", () => {
       openFilePicker: true,
       saveFilePicker: true,
       directoryPicker: true,
+      directoryInput: true,
       download: true
     });
   });
@@ -28,6 +29,7 @@ describe("detectFileAccessCapabilities", () => {
       openFilePicker: false,
       saveFilePicker: false,
       directoryPicker: false,
+      directoryInput: false,
       download: false
     });
   });

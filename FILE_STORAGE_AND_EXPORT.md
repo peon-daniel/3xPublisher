@@ -25,6 +25,12 @@ filename. The app does not enumerate the project folder, so it cannot guarantee 
 suggested export sequence is unused; the user must choose a non-conflicting name.
 Loading a project reports that it was loaded; it is not reported as a new save operation.
 
+Image discovery is explicit. Browsers exposing directory selection can reconcile against a
+user-selected folder. When only individual file selection is available, selected images are
+added without treating other catalog entries as missing. Folder reconciliation reports and
+leaves duplicate basenames unresolved until the user chooses the intended relative path. The
+choice is session-only because the v1 project schema stores filenames, not relative paths.
+
 Do not claim autosave succeeded unless the browser reports successful completion of the write. The UI must distinguish:
 - changes not yet saved/exported,
 - successfully saved to the selected file,

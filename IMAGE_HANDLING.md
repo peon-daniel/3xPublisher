@@ -7,10 +7,13 @@ The website and publisher must not edit, rename, move, compress, delete, or othe
 ## Discovery and references
 
 - Scan only folders/files the user explicitly selects and the browser can access.
+- When a complete selected folder is available, reconcile its image filenames against the project catalog. Manually selected image files are an incomplete source: add those files but do not infer that unselected files are missing.
+- Treat files as images when the browser reports an `image/*` MIME type or when the filename uses a recognized fallback extension: `.avif`, `.bmp`, `.gif`, `.heic`, `.heif`, `.jpeg`, `.jpg`, `.png`, `.tif`, `.tiff`, or `.webp`.
 - Use filenames as portable references in JSON, not absolute paths as the only identity.
 - On reopening, match saved image references against the selected folder's available files.
 - New images found in the folder are added to Unassigned Photos.
 - If the same filename exists in multiple subfolders, do not silently choose one; report the ambiguity and require a documented resolution.
+- Ambiguous discovered filenames are excluded from automatic matching and addition. The user can explicitly choose which relative path to use for the current session. Existing catalog and post references using that filename are kept unchanged until a choice is made. The v1 JSON stores filenames rather than relative paths, so this path-level choice is not persisted and must be confirmed again after reopening the project.
 - The application must explain when browser limitations prevent recursive folder scanning or direct file access.
 
 ## Missing-image reconciliation
