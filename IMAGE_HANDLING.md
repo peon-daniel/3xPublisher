@@ -82,6 +82,8 @@ Filename identifiers are parsed with the deterministic rules below; the image ID
 - Images are visible in Unassigned Photos unless JSON marks them hidden.
 - Hidden images are not deleted from disk; a bottom-of-pane control reveals them.
 - Unassigned images are alphabetically sorted by default.
+- Click a thumbnail to select it. Ctrl-click (or Cmd-click on macOS) toggles additional
+  thumbnails in the selection; selected thumbnails are shown with a highlighted border.
 - Users may reorder one or more selected images via drag/drop; preserve that custom order in JSON.
-- Up/Down controls provide an accessible alternative. Assigning an image clears its unassigned order; if it is later removed, it returns to the default alphabetical position until reordered again.
+- Drag and drop reorders unassigned images; selected images move together in their visible order. Dragging the selected set onto a post adds them to that post's carousel in order. Keyboard users can select a single image and use Up/Down arrows. Assigning an image clears its unassigned order; if it is later removed, it returns to the default alphabetical position until reordered again.
 - Per-image descriptions may be stored while images are unassigned. Applying a description does not automatically create a post.

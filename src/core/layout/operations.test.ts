@@ -4,6 +4,7 @@ import { createEmptyGroup, createEmptyPost, createEmptyProject } from "../projec
 import type { GroupEntry, PostEntry, ProjectData } from "../project/types";
 import {
   assignImageToPost,
+  assignImagesToPost,
   deleteGroup,
   insertGroup,
   moveCarouselImage,
@@ -11,6 +12,7 @@ import {
   movePostToEmptySlot,
   movePostWithinGroup,
   moveUnassignedImage,
+  moveUnassignedImagesTo,
   PLACEHOLDER_GROUP_ID,
   removeImageFromPost,
   setImageHidden
@@ -72,6 +74,47 @@ describe("layout operations", () => {
       expect(result.project.groups[0].publicationStatus).toBe("not ready");
       expect(result.project.groups[0].posts[0].hashtags).toEqual([]);
       expect(result.project.images[0].unassignedOrder).toBeNull();
+    }
+  });
+
+  it("assigns multiple photos to one post in their visible order", () => {
+    const project = makeProject();
+    const result = assignImagesToPost(
+      project,
+      ["one.jpg", "two.jpg"],
+      PLACEHOLDER_GROUP_ID,
+      0
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.project.groups).toHaveLength(1);
+      expect(result.project.groups[0].posts[0].images).toEqual(["one.jpg", "two.jpg"]);
+      expect(result.project.images.map((image) => image.unassignedOrder)).toEqual([
+        null,
+        null,
+        null
+      ]);
+    }
+  });
+
+  it("reorders a selected photo batch together while preserving its visible order", () => {
+    const project = makeProject();
+    const result = moveUnassignedImagesTo(
+      project,
+      ["two.jpg", "one.jpg"],
+      "three.jpg",
+      true
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(
+        result.project.images
+          .slice()
+          .sort((left, right) => (left.unassignedOrder ?? 0) - (right.unassignedOrder ?? 0))
+          .map((image) => image.filename)
+      ).toEqual(["three.jpg", "one.jpg", "two.jpg"]);
     }
   });
 

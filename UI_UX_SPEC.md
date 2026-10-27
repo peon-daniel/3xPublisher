@@ -7,7 +7,7 @@ views, project save/export actions, and a visible persistence status. Before a p
 loaded, show a focused folder-selection panel; hide it after successful load.
 
 Use a two-pane workspace:
-- **Unassigned Photos** in a narrow left sidebar with square thumbnails and a control to show hidden images.
+- **Unassigned Photos** in a left rail with at least three columns of equal-size square thumbnails and a control to show hidden images.
 - **3x post groups** on the right, ordered vertically, with each group's three post previews side-by-side.
 
 A “3x post group” is one outer container holding exactly three post cards. Each post card represents one Instagram post and may hold multiple carousel images.
@@ -23,6 +23,11 @@ A “3x post group” is one outer container holding exactly three post cards. E
 ## Drag and drop
 
 - Drag images from Unassigned Photos into a post.
+- Click a photo to select it; Ctrl-click (or Cmd-click on macOS) adds or removes photos from
+  the selection. Highlight selected thumbnails with a border.
+- Drag any selected thumbnail to reorder the selected photos together or drop them into a
+  post as a carousel.
+- The same selected photos can receive a shared description using the bulk description field.
 - Drop onto an occupied post to append to its carousel.
 - Reorder carousel images directly.
 - Remove image to return it to unassigned list.
@@ -47,6 +52,8 @@ A “3x post group” is one outer container holding exactly three post cards. E
   4:5 portrait preview so the full image can be inspected.
 - Hovering a post with a carousel shows all carousel images, both in the planner and preview.
 - Carousel order must be visible and editable.
+- Photo hover controls overlay the thumbnail and must not shift neighboring thumbnails.
+- Keep the loaded photo rail free of a separate photo-import heading and add-photos block.
 - Show descriptions on post hover or keyboard focus. Selecting a post reveals its editing and
   ordering controls; selection must also be operable by touch.
 - Previewing a group temporarily places it at the top of the published block without mutating saved order.

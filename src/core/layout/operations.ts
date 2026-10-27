@@ -71,9 +71,59 @@ export function assignImageToPost(
   return success({ ...project, groups, images });
 }
 
+export function assignImagesToPost(
+  project: ProjectData,
+  filenames: string[],
+  groupId: string,
+  postIndex: number,
+  identifiersByFilename: ReadonlyMap<string, string[]> = new Map()
+): LayoutOperationResult {
+  if (filenames.length === 0 || new Set(filenames).size !== filenames.length) {
+    return failure("Select one or more distinct unassigned images.");
+  }
+
+  let nextProject = project;
+  let targetGroupId = groupId;
+  for (const filename of filenames) {
+    const result = assignImageToPost(
+      nextProject,
+      filename,
+      targetGroupId,
+      postIndex,
+      identifiersByFilename.get(filename)
+    );
+    if (!result.ok) {
+      return result;
+    }
+
+    nextProject = result.project;
+    if (targetGroupId === PLACEHOLDER_GROUP_ID) {
+      targetGroupId = nextProject.groups.at(-1)?.id ?? PLACEHOLDER_GROUP_ID;
+    }
+  }
+
+  return success(nextProject);
+}
+
 export function moveUnassignedImageTo(
   project: ProjectData,
   sourceFilename: string,
+  targetFilename: string,
+  insertAfter: boolean,
+  visibleFilenames?: string[]
+): LayoutOperationResult {
+  return moveUnassignedImagesTo(
+    project,
+    [sourceFilename],
+    targetFilename,
+    insertAfter,
+    visibleFilenames
+  );
+}
+
+export function moveUnassignedImagesTo(
+  project: ProjectData,
+  sourceFilenames: string[],
   targetFilename: string,
   insertAfter: boolean,
   visibleFilenames?: string[]
@@ -84,12 +134,14 @@ export function moveUnassignedImageTo(
   );
   const visibleSet = new Set(visibleFilenames ?? allUnassigned.map((image) => image.filename));
   const visible = allUnassigned.filter((image) => visibleSet.has(image.filename));
-  const sourceIndex = visible.findIndex((image) => image.filename === sourceFilename);
   const targetIndex = visible.findIndex((image) => image.filename === targetFilename);
+  const sourceSet = new Set(sourceFilenames);
   if (
-    sourceIndex < 0 ||
+    sourceFilenames.length === 0 ||
+    sourceSet.size !== sourceFilenames.length ||
+    sourceFilenames.some((filename) => !visible.some((image) => image.filename === filename)) ||
     targetIndex < 0 ||
-    sourceIndex === targetIndex ||
+    sourceSet.has(targetFilename) ||
     (visibleFilenames ?? []).some((filename) => {
       const image = project.images.find((candidate) => candidate.filename === filename);
       return !image || assignedFilenames.has(filename);
@@ -98,13 +150,16 @@ export function moveUnassignedImageTo(
     return failure("The selected unassigned images are no longer available.");
   }
 
-  const [source] = visible.splice(sourceIndex, 1);
-  const destinationIndex = visible.findIndex((image) => image.filename === targetFilename);
-  visible.splice(destinationIndex + (insertAfter ? 1 : 0), 0, source);
-  const visibleFilenamesSet = new Set(visible.map((image) => image.filename));
+  const movedImages = visible.filter((image) => sourceSet.has(image.filename));
+  const remainingVisible = visible.filter((image) => !sourceSet.has(image.filename));
+  const destinationIndex = remainingVisible.findIndex(
+    (image) => image.filename === targetFilename
+  );
+  remainingVisible.splice(destinationIndex + (insertAfter ? 1 : 0), 0, ...movedImages);
+  const visibleFilenamesSet = new Set(remainingVisible.map((image) => image.filename));
   let visibleIndex = 0;
   const reorderedUnassigned = allUnassigned.map((image) =>
-    visibleFilenamesSet.has(image.filename) ? visible[visibleIndex++] : image
+    visibleFilenamesSet.has(image.filename) ? remainingVisible[visibleIndex++] : image
   );
   const orderByFilename = new Map(
     reorderedUnassigned.map((image, index) => [image.filename, index])

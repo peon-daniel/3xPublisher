@@ -49,14 +49,15 @@ import type { DiscoveredImage } from "./core/images/discoverImages";
 import type { AmbiguousImageFilename } from "./core/images/reconcileProjectImages";
 import {
   assignImageToPost,
+  assignImagesToPost,
   deleteGroup,
   insertGroup,
   moveCarouselImage,
   moveGroup,
   movePostToEmptySlot,
   movePostWithinGroup,
-  moveUnassignedImage,
   moveUnassignedImageTo,
+  moveUnassignedImagesTo,
   PLACEHOLDER_GROUP_ID,
   removeImageFromPost,
   setImageHidden
@@ -103,18 +104,9 @@ app.innerHTML = `
         <button id="export-project" type="button">Export copy</button>
       </div>
       <p id="project-status" class="status" role="status" aria-live="polite"></p>
-      <p id="project-summary" class="summary"></p>
     </header>
     <section id="planner-panel" class="tab-panel" role="tabpanel" aria-labelledby="planner-tab">
-      <section id="image-catalog" class="image-catalog" aria-labelledby="image-catalog-title">
-        <div class="image-catalog-heading">
-          <h2 id="image-catalog-title">Photos</h2>
-          <label class="add-photos" for="image-files">＋ Add photos</label>
-          <input id="image-files" type="file" accept="image/*" multiple />
-        </div>
-        <p id="image-summary" class="summary"></p>
-        <ul id="image-report" class="image-report" aria-live="polite"></ul>
-      </section>
+      <ul id="image-report" class="image-report" aria-live="polite"></ul>
       <div id="workspace-root"></div>
     </section>
     <section id="dictionary-panel" class="tab-panel" role="tabpanel" aria-labelledby="dictionary-tab" hidden>
@@ -128,17 +120,13 @@ const newProjectButton = requireElement<HTMLButtonElement>("#new-project");
 const saveButton = requireElement<HTMLButtonElement>("#save-project");
 const exportButton = requireElement<HTMLButtonElement>("#export-project");
 const status = requireElement<HTMLParagraphElement>("#project-status");
-const summary = requireElement<HTMLParagraphElement>("#project-summary");
-const imageFilesInput = requireElement<HTMLInputElement>("#image-files");
 const imageFolderInput = requireElement<HTMLInputElement>("#image-folder");
 const chooseImageFolderButton = requireElement<HTMLButtonElement>("#choose-image-folder");
 const fallbackProjectControls = requireElement<HTMLDivElement>("#fallback-project-controls");
 const setupPanel = requireElement<HTMLElement>("#setup-panel");
 const projectToolbar = requireElement<HTMLElement>("#project-toolbar");
 const projectName = requireElement<HTMLSpanElement>("#project-name");
-const imageCatalog = requireElement<HTMLElement>("#image-catalog");
 const folderHelp = requireElement<HTMLParagraphElement>("#folder-help");
-const imageSummary = requireElement<HTMLParagraphElement>("#image-summary");
 const imageReport = requireElement<HTMLUListElement>("#image-report");
 const workspaceRoot = requireElement<HTMLDivElement>("#workspace-root");
 const dictionaryRoot = requireElement<HTMLDivElement>("#dictionary-root");
@@ -160,7 +148,7 @@ const previewSources = new Map<string, { filename: string; url: string }>();
 let showHidden = false;
 let selectedImageFilename: string | null = null;
 let workspaceSelection: WorkspaceSelection = null;
-let selectedDescriptionFilenames = new Set<string>();
+let selectedPhotoFilenames = new Set<string>();
 let bulkDescription = "";
 let dictionarySampleFilename = "P8260673_d3, fp100, halfframe, rodinal.jpg";
 let dictionaryMessage = "";
@@ -228,7 +216,7 @@ fileInput.addEventListener("change", async () => {
   dismissedSuggestionIdentifiers.clear();
   folderIdentifierAnalyses = [];
   selectedImageFilename = null;
-  selectedDescriptionFilenames.clear();
+  selectedPhotoFilenames.clear();
   bulkDescription = "";
   workspaceSelection = null;
   previewGroupId = null;
@@ -259,7 +247,7 @@ newProjectButton.addEventListener("click", () => {
   dismissedSuggestionIdentifiers.clear();
   folderIdentifierAnalyses = [];
   selectedImageFilename = null;
-  selectedDescriptionFilenames.clear();
+  selectedPhotoFilenames.clear();
   bulkDescription = "";
   workspaceSelection = null;
   previewGroupId = null;
@@ -267,15 +255,6 @@ newProjectButton.addEventListener("click", () => {
   showHidden = false;
   lastMessage = "New project created. Changes have not been saved.";
   render();
-});
-
-imageFilesInput.addEventListener("change", () => {
-  const files = Array.from(imageFilesInput.files ?? []).map((file) => ({
-    file,
-    relativePath: file.name
-  }));
-  void analyzeAndReconcileSelectedImages(files, false);
-  imageFilesInput.value = "";
 });
 
 imageFolderInput.addEventListener("change", () => {
@@ -375,13 +354,45 @@ chooseImageFolderButton.addEventListener("click", async () => {
 document.addEventListener("keydown", (event) => {
   if (
     (event.key !== "ArrowUp" && event.key !== "ArrowDown") ||
-    shouldIgnoreLayoutShortcut(event.target) ||
-    !workspaceSelection
+    shouldIgnoreLayoutShortcut(event.target)
   ) {
     return;
   }
 
   const direction = event.key === "ArrowUp" ? -1 : 1;
+  if (
+    selectedImageFilename !== null &&
+    event.target instanceof HTMLElement &&
+    event.target.matches(".image-tile")
+  ) {
+    const visibleFilenames = getVisibleUnassignedFilenames();
+    const imageIndex = visibleFilenames.indexOf(selectedImageFilename);
+    const adjacentFilename = visibleFilenames[imageIndex + direction];
+    if (adjacentFilename) {
+      event.preventDefault();
+      applyLayoutResult(
+        moveUnassignedImageTo(
+          project,
+          selectedImageFilename,
+          adjacentFilename,
+          direction === 1,
+          visibleFilenames
+        ),
+        "Unassigned photo order updated.",
+        true
+      );
+      workspaceRoot
+        .querySelector<HTMLButtonElement>(
+          `.image-tile[data-filename="${CSS.escape(selectedImageFilename)}"]`
+        )
+        ?.focus();
+    }
+    return;
+  }
+  if (!workspaceSelection) {
+    return;
+  }
+
   event.preventDefault();
   if (workspaceSelection.kind === "group") {
     applyLayoutResult(moveGroup(project, workspaceSelection.groupId, direction));
@@ -518,13 +529,13 @@ async function saveDirectorySnapshot(snapshot: {
     if (snapshot.session === projectSession && snapshot.revision === projectRevision) {
       applyPersistenceEvent("persistence-failed");
       lastMessage = `Could not prepare the project for auto-save: ${describeError(error)}`;
-      render();
+      renderPersistenceStatus();
     }
     return;
   }
 
   lastMessage = "Saving changes to the selected project folder…";
-  render();
+  renderPersistenceStatus();
   let result: Awaited<ReturnType<typeof writeSelectedFile>>;
   try {
     const handle = await snapshot.directory.getFileHandle(snapshot.filename, { create: true });
@@ -548,7 +559,7 @@ async function saveDirectorySnapshot(snapshot: {
     applyPersistenceEvent("persistence-failed");
     lastMessage = `${result.error} Changes remain in memory; use Export copy to make a backup.`;
   }
-  render();
+  renderPersistenceStatus();
 }
 
 function exportProjectCopy(): void {
@@ -684,16 +695,8 @@ function buildImageReport(
 ): string[] {
   const messages: string[] = [];
 
-  if (result.addedFilenames.length > 0) {
-    messages.push(
-      `Added ${result.addedFilenames.length} image(s) to Unassigned Photos: ${result.addedFilenames.join(", ")}`
-    );
-  }
-
   if (result.removedFilenames.length > 0) {
-    messages.push(
-      `Removed ${result.removedFilenames.length} unavailable image(s): ${result.removedFilenames.join(", ")}`
-    );
+    messages.push(`Removed ${result.removedFilenames.length} unavailable image(s).`);
   }
 
   for (const assignment of result.missingAssignments) {
@@ -723,14 +726,10 @@ function render(): void {
   projectToolbar.hidden = !projectLoaded;
   plannerPanel.hidden = !projectLoaded || activeTab !== "planner";
   dictionaryPanel.hidden = !projectLoaded || activeTab !== "dictionary";
-  status.textContent = `${persistence.dirty ? "Unsaved changes" : statusLabel(persistence.status)}. ${lastMessage}`;
-  status.dataset.dirty = String(persistence.dirty);
+  renderPersistenceStatus();
   saveButton.disabled = !projectLoaded;
   exportButton.disabled = !projectLoaded;
-  summary.textContent = `Schema version ${project.schemaVersion} · ${project.images.length} image records · ${project.groups.length} groups`;
   const assignedFilenames = new Set(project.groups.flatMap((group) => group.posts.flatMap((post) => post.images)));
-  const unassignedCount = project.images.filter((image) => !assignedFilenames.has(image.filename)).length;
-  imageSummary.textContent = `${project.images.length} catalog image(s) · ${unassignedCount} unassigned`;
   const hiddenCount = project.images.filter(
     (image) => image.hidden && !assignedFilenames.has(image.filename)
   ).length;
@@ -784,7 +783,7 @@ function render(): void {
     showHidden,
     hiddenCount,
     selection: workspaceSelection,
-    selectedDescriptionFilenames: Array.from(selectedDescriptionFilenames),
+    selectedPhotoFilenames: Array.from(selectedPhotoFilenames),
     bulkDescription,
     defaultHashtagLimit: project.settings.defaultHashtagLimit,
     previewGroupId,
@@ -792,10 +791,6 @@ function render(): void {
     fullImageFilename,
     imageUrlForFilename
   });
-  const photoPane = workspaceRoot.querySelector<HTMLElement>(".unassigned-pane");
-  if (photoPane) {
-    photoPane.prepend(imageCatalog);
-  }
   renderDictionary(dictionaryRoot, {
     dictionary: project.dictionary,
     defaultHashtagLimit: project.settings.defaultHashtagLimit,
@@ -866,6 +861,12 @@ function render(): void {
   setActiveTab(activeTab);
 }
 
+function renderPersistenceStatus(): void {
+  status.textContent = `${persistence.dirty ? "Unsaved changes" : statusLabel(persistence.status)}. ${lastMessage}`;
+  status.dataset.dirty = String(persistence.dirty);
+  status.title = status.textContent;
+}
+
 function getVisibleUnassignedFilenames(): string[] {
   const assignedFilenames = new Set(
     project.groups.flatMap((group) => group.posts.flatMap((post) => post.images))
@@ -894,9 +895,35 @@ function imageIdentifiersForFilename(filename: string): string[] | undefined {
 
 function createWorkspaceActions(): WorkspaceActions {
   return {
-    onSelectImage(filename) {
-      selectedImageFilename = selectedImageFilename === filename ? null : filename;
+    onSelectImage(filename, additive) {
+      if (additive) {
+        if (selectedPhotoFilenames.has(filename)) {
+          selectedPhotoFilenames.delete(filename);
+        } else {
+          selectedPhotoFilenames.add(filename);
+        }
+      } else {
+        selectedPhotoFilenames = new Set([filename]);
+      }
+      selectedImageFilename = selectedPhotoFilenames.has(filename)
+        ? filename
+        : Array.from(selectedPhotoFilenames).at(-1) ?? null;
+      const selectedImages = project.images.filter((image) =>
+        selectedPhotoFilenames.has(image.filename)
+      );
+      bulkDescription =
+        selectedImages.length > 0 &&
+        selectedImages.every((image) => image.description === selectedImages[0].description)
+          ? selectedImages[0].description
+          : "";
       render();
+      if (selectedImageFilename !== null) {
+        workspaceRoot
+          .querySelector<HTMLButtonElement>(
+            `.image-tile[data-filename="${CSS.escape(selectedImageFilename)}"]`
+          )
+          ?.focus();
+      }
     },
     onSelectionChange(selection) {
       workspaceSelection = selection;
@@ -909,45 +936,17 @@ function createWorkspaceActions(): WorkspaceActions {
     onToggleHidden(filename, hidden) {
       applyLayoutResult(setImageHidden(project, filename, hidden));
     },
-    onToggleDescriptionImage(filename, selected) {
-      const image = project.images.find((candidate) => candidate.filename === filename);
-      if (selected) {
-        if (image && selectedDescriptionFilenames.size === 0) {
-          bulkDescription = image.description;
-        } else if (
-          image &&
-          image.description !== bulkDescription
-        ) {
-          bulkDescription = "";
-        }
-        selectedDescriptionFilenames.add(filename);
-      } else {
-        selectedDescriptionFilenames.delete(filename);
-        if (selectedDescriptionFilenames.size === 0) {
-          bulkDescription = "";
-        }
-      }
-      render();
-    },
-    onMoveUnassignedImage(filename, direction) {
+    onMoveUnassignedImagesTo(sourceFilenames, targetFilename, insertAfter) {
       applyLayoutResult(
-        moveUnassignedImage(
+        moveUnassignedImagesTo(
           project,
-          filename,
-          direction,
-          getVisibleUnassignedFilenames()
-        )
-      );
-    },
-    onMoveUnassignedImageTo(sourceFilename, targetFilename, insertAfter) {
-      applyLayoutResult(
-        moveUnassignedImageTo(
-          project,
-          sourceFilename,
+          sourceFilenames,
           targetFilename,
           insertAfter,
           getVisibleUnassignedFilenames()
-        )
+        ),
+        "Unassigned photo order updated.",
+        true
       );
     },
     onBulkDescriptionChange(description) {
@@ -956,11 +955,12 @@ function createWorkspaceActions(): WorkspaceActions {
     onApplyBulkDescription() {
       const result = updateUnassignedImageDescriptions(
         project,
-        Array.from(selectedDescriptionFilenames),
+        Array.from(selectedPhotoFilenames),
         bulkDescription
       );
       if (result.ok) {
-        selectedDescriptionFilenames.clear();
+        selectedPhotoFilenames.clear();
+        selectedImageFilename = null;
       }
       applyContentResult(result, "Description saved for selected unassigned image(s).");
     },
@@ -1105,6 +1105,24 @@ function createWorkspaceActions(): WorkspaceActions {
         )
       );
     },
+    onAssignImages(filenames, groupId, postIndex) {
+      const identifiersByFilename = new Map(
+        filenames.map((filename) => [
+          filename,
+          imageIdentifiersForFilename(filename) ?? []
+        ])
+      );
+      applyLayoutResult(
+        assignImagesToPost(
+          project,
+          filenames,
+          groupId,
+          postIndex,
+          identifiersByFilename
+        ),
+        `${filenames.length} photo(s) added to the post.`
+      );
+    },
     onRemoveImage(groupId, postIndex, imageIndex) {
       applyLayoutResult(removeImageFromPost(project, groupId, postIndex, imageIndex));
     },
@@ -1129,7 +1147,8 @@ function createWorkspaceActions(): WorkspaceActions {
 
 function applyLayoutResult(
   result: LayoutOperationResult,
-  successMessage = "Project layout updated."
+  successMessage = "Project layout updated.",
+  preserveSelectedImage = false
 ): void {
   if (!result.ok) {
     setOperationError(result.error);
@@ -1138,18 +1157,22 @@ function applyLayoutResult(
 
   project = result.project;
   markProjectChanged();
-  selectedImageFilename = null;
+  if (!preserveSelectedImage) {
+    selectedImageFilename = null;
+  }
   const assignedFilenames = new Set(
     project.groups.flatMap((group) => group.posts.flatMap((post) => post.images))
   );
-  selectedDescriptionFilenames = new Set(
-    Array.from(selectedDescriptionFilenames).filter(
+  selectedPhotoFilenames = new Set(
+    Array.from(selectedPhotoFilenames).filter(
       (filename) =>
         project.images.some((image) => image.filename === filename) &&
         !assignedFilenames.has(filename)
     )
   );
-  if (selectedDescriptionFilenames.size === 0) {
+  selectedImageFilename =
+    Array.from(selectedPhotoFilenames).at(-1) ?? null;
+  if (selectedPhotoFilenames.size === 0) {
     bulkDescription = "";
   }
   let previewEnded = false;
@@ -1257,7 +1280,7 @@ function shouldIgnoreLayoutShortcut(target: EventTarget | null): boolean {
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
     target instanceof HTMLSelectElement ||
-    target.closest("button, a, [role='tab'], [role='button']") !== null
+    target.closest("button:not(.image-tile), a, [role='tab'], [role='button']") !== null
   );
 }
 

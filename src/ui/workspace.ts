@@ -21,7 +21,7 @@ export interface WorkspaceOptions {
   showHidden: boolean;
   hiddenCount: number;
   selection: WorkspaceSelection;
-  selectedDescriptionFilenames: string[];
+  selectedPhotoFilenames: string[];
   bulkDescription: string;
   defaultHashtagLimit: number;
   previewGroupId: string | null;
@@ -31,14 +31,12 @@ export interface WorkspaceOptions {
 }
 
 export interface WorkspaceActions {
-  onSelectImage(filename: string): void;
+  onSelectImage(filename: string, additive: boolean): void;
   onSelectionChange(selection: WorkspaceSelection): void;
   onToggleShowHidden(): void;
   onToggleHidden(filename: string, hidden: boolean): void;
-  onToggleDescriptionImage(filename: string, selected: boolean): void;
-  onMoveUnassignedImage(filename: string, direction: -1 | 1): void;
-  onMoveUnassignedImageTo(
-    sourceFilename: string,
+  onMoveUnassignedImagesTo(
+    sourceFilenames: string[],
     targetFilename: string,
     insertAfter: boolean
   ): void;
@@ -80,6 +78,7 @@ export interface WorkspaceActions {
   onMoveGroup(groupId: string, direction: -1 | 1): void;
   onMovePost(groupId: string, postIndex: number, direction: -1 | 1): void;
   onAddGroup(): void;
+  onAssignImages(filenames: string[], groupId: string, postIndex: number): void;
 }
 
 export function bindWorkspaceEvents(
@@ -94,6 +93,13 @@ export function bindWorkspaceEvents(
 
     const button = target.closest<HTMLButtonElement>("button[data-action]");
     if (button && !button.disabled) {
+      if (button.dataset.action === "select-image") {
+        actions.onSelectImage(
+          button.dataset.filename ?? "",
+          event.ctrlKey || event.metaKey
+        );
+        return;
+      }
       runButtonAction(button, actions);
       return;
     }
@@ -126,12 +132,7 @@ export function bindWorkspaceEvents(
       return;
     }
 
-    if (target.dataset.action === "select-description-image") {
-      actions.onToggleDescriptionImage(
-        target.dataset.filename ?? "",
-        target.checked
-      );
-    } else if (target.dataset.action === "set-post-limit") {
+    if (target.dataset.action === "set-post-limit") {
       actions.onUpdatePostLimit(
         target.dataset.groupId ?? "",
         Number(target.dataset.postIndex),
@@ -169,7 +170,14 @@ export function bindWorkspaceEvents(
       ].join("\n"));
       event.dataTransfer.effectAllowed = "move";
     } else if (image) {
-      event.dataTransfer.setData(IMAGE_TRANSFER_TYPE, image.dataset.imageFilename ?? "");
+      const filename = image.dataset.imageFilename ?? "";
+      const selectedFilenames = new Set(readSelectedImageFilenames(root));
+      const draggedFilenames = selectedFilenames.has(filename)
+        ? Array.from(root.querySelectorAll<HTMLElement>("[data-image-filename]"))
+            .map((item) => item.dataset.imageFilename ?? "")
+            .filter((name) => selectedFilenames.has(name))
+        : [filename];
+      event.dataTransfer.setData(IMAGE_TRANSFER_TYPE, JSON.stringify(draggedFilenames));
       event.dataTransfer.effectAllowed = "copy";
     } else if (postHandle) {
       event.dataTransfer.setData(POST_TRANSFER_TYPE, [
@@ -215,13 +223,13 @@ export function bindWorkspaceEvents(
 
     const targetImage = target.closest<HTMLElement>("[data-image-filename]");
     if (targetImage) {
-      const sourceFilename = event.dataTransfer.getData(IMAGE_TRANSFER_TYPE);
+      const sourceFilenames = readDraggedImageFilenames(event.dataTransfer);
       const targetFilename = targetImage.dataset.imageFilename ?? "";
-      if (sourceFilename && sourceFilename !== targetFilename) {
+      if (sourceFilenames.length > 0 && !sourceFilenames.includes(targetFilename)) {
         event.preventDefault();
         const bounds = targetImage.getBoundingClientRect();
-        actions.onMoveUnassignedImageTo(
-          sourceFilename,
+        actions.onMoveUnassignedImagesTo(
+          sourceFilenames,
           targetFilename,
           event.clientY > bounds.top + bounds.height / 2
         );
@@ -231,11 +239,14 @@ export function bindWorkspaceEvents(
 }
 
 export function renderWorkspace(root: HTMLElement, options: WorkspaceOptions): void {
+  const unassignedScrollTop =
+    root.querySelector<HTMLElement>(".unassigned-list")?.scrollTop ?? 0;
   root.replaceChildren();
 
   const layout = document.createElement("div");
   layout.className = "workspace";
   layout.dataset.selectedImage = options.selectedImageFilename ?? "";
+  layout.dataset.selectedImages = JSON.stringify(options.selectedPhotoFilenames);
 
   const unassignedPane = document.createElement("section");
   unassignedPane.className = "unassigned-pane";
@@ -282,12 +293,10 @@ export function renderWorkspace(root: HTMLElement, options: WorkspaceOptions): v
     unassignedList.append(empty);
   }
 
-  unassignedImages.forEach((image, index) => {
+  unassignedImages.forEach((image) => {
     unassignedList.append(
       renderUnassignedImage(
         image,
-        index,
-        unassignedImages.length,
         options
       )
     );
@@ -295,6 +304,10 @@ export function renderWorkspace(root: HTMLElement, options: WorkspaceOptions): v
   unassignedPane.append(unassignedList);
   const bulkDescriptionLabel = document.createElement("label");
   bulkDescriptionLabel.textContent = "Description for selected photo(s)";
+  const selectionHelp = document.createElement("p");
+  selectionHelp.className = "help-text selection-help";
+  selectionHelp.textContent =
+    "Click a photo to select it. Ctrl/Cmd-click to select more; selected photos move together when dragged.";
   const bulkDescription = document.createElement("textarea");
   bulkDescription.rows = 3;
   bulkDescription.value = options.bulkDescription;
@@ -304,8 +317,13 @@ export function renderWorkspace(root: HTMLElement, options: WorkspaceOptions): v
     "Apply description to selected",
     "apply-bulk-description"
   );
-  applyDescription.disabled = options.selectedDescriptionFilenames.length === 0;
-  unassignedPane.append(bulkDescriptionLabel, bulkDescription, applyDescription);
+  applyDescription.disabled = options.selectedPhotoFilenames.length === 0;
+  unassignedPane.append(
+    bulkDescriptionLabel,
+    selectionHelp,
+    bulkDescription,
+    applyDescription
+  );
 
   if (options.hiddenCount > 0) {
     const showHiddenButton = actionButton(
@@ -377,12 +395,14 @@ export function renderWorkspace(root: HTMLElement, options: WorkspaceOptions): v
   groupsPane.append(groupList);
   layout.append(unassignedPane, groupsPane);
   root.append(layout);
+  const renderedUnassignedList = root.querySelector<HTMLElement>(".unassigned-list");
+  if (renderedUnassignedList) {
+    renderedUnassignedList.scrollTop = unassignedScrollTop;
+  }
 }
 
 function renderUnassignedImage(
   image: ImageEntry,
-  index: number,
-  count: number,
   options: WorkspaceOptions
 ): HTMLLIElement {
   const item = document.createElement("li");
@@ -395,8 +415,9 @@ function renderUnassignedImage(
   select.dataset.imageFilename = image.filename;
   select.dataset.action = "select-image";
   select.dataset.filename = image.filename;
-  select.setAttribute("aria-pressed", String(options.selectedImageFilename === image.filename));
-  if (options.selectedImageFilename === image.filename) {
+  const isSelected = options.selectedPhotoFilenames.includes(image.filename);
+  select.setAttribute("aria-pressed", String(isSelected));
+  if (isSelected) {
     select.classList.add("selected");
   }
 
@@ -416,30 +437,6 @@ function renderUnassignedImage(
 
   const controls = document.createElement("div");
   controls.className = "unassigned-controls";
-  const moveUp = actionButton("Up", "move-unassigned-image");
-  moveUp.dataset.filename = image.filename;
-  moveUp.dataset.direction = "-1";
-  moveUp.disabled = index === 0;
-  moveUp.setAttribute("aria-label", `Move ${image.filename} up`);
-  const moveDown = actionButton("Down", "move-unassigned-image");
-  moveDown.dataset.filename = image.filename;
-  moveDown.dataset.direction = "1";
-  moveDown.disabled = index === count - 1;
-  moveDown.setAttribute("aria-label", `Move ${image.filename} down`);
-  controls.append(moveUp, moveDown);
-
-  const descriptionSelection = document.createElement("label");
-  descriptionSelection.className = "description-selection";
-  const checkbox = document.createElement("input");
-  checkbox.type = "checkbox";
-  checkbox.dataset.action = "select-description-image";
-  checkbox.dataset.filename = image.filename;
-  checkbox.checked = options.selectedDescriptionFilenames.includes(image.filename);
-  checkbox.setAttribute("aria-label", `Select ${image.filename} for description editing`);
-  const checkboxLabel = document.createElement("span");
-  checkboxLabel.textContent = "Description";
-  descriptionSelection.append(checkbox, checkboxLabel);
-  controls.append(descriptionSelection);
 
   const hide = actionButton(image.hidden ? "Show" : "Hide", "toggle-hidden");
   hide.dataset.filename = image.filename;
@@ -789,17 +786,11 @@ function runButtonAction(button: HTMLButtonElement, actions: WorkspaceActions): 
   const direction = Number(button.dataset.direction) as -1 | 1;
 
   switch (button.dataset.action) {
-    case "select-image":
-      actions.onSelectImage(button.dataset.filename ?? "");
-      break;
     case "toggle-hidden":
       actions.onToggleHidden(
         button.dataset.filename ?? "",
         button.dataset.hidden === "true"
       );
-      break;
-    case "move-unassigned-image":
-      actions.onMoveUnassignedImage(button.dataset.filename ?? "", direction);
       break;
     case "toggle-hidden-list":
       actions.onToggleShowHidden();
@@ -874,6 +865,37 @@ function runButtonAction(button: HTMLButtonElement, actions: WorkspaceActions): 
   }
 }
 
+function readDraggedImageFilenames(transfer: DataTransfer): string[] {
+  const data = transfer.getData(IMAGE_TRANSFER_TYPE);
+  if (!data) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (Array.isArray(parsed) && parsed.every((value) => typeof value === "string")) {
+      return parsed;
+    }
+  } catch {
+    return [data];
+  }
+  return [];
+}
+
+function readSelectedImageFilenames(root: HTMLElement): string[] {
+  const data = root.querySelector<HTMLElement>(".workspace")?.dataset.selectedImages;
+  if (!data) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(data);
+    return Array.isArray(parsed) && parsed.every((value) => typeof value === "string")
+      ? parsed
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function handlePostDrop(
   transfer: DataTransfer,
   targetPost: HTMLElement,
@@ -882,9 +904,9 @@ function handlePostDrop(
 ): void {
   const targetGroupId = targetPost.dataset.groupId ?? "";
   const targetPostIndex = Number(targetPost.dataset.postIndex);
-  const filename = transfer.getData(IMAGE_TRANSFER_TYPE);
-  if (filename) {
-    actions.onAssignImage(filename, targetGroupId, targetPostIndex);
+  const filenames = readDraggedImageFilenames(transfer);
+  if (filenames.length > 0) {
+    actions.onAssignImages(filenames, targetGroupId, targetPostIndex);
     return;
   }
 

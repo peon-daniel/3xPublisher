@@ -41,12 +41,6 @@ p {
   margin-top: 28px;
 }
 
-.image-catalog {
-  display: grid;
-  gap: 12px;
-  margin-top: 32px;
-}
-
 .tabs {
   display: flex;
   gap: 8px;
@@ -80,15 +74,6 @@ p {
   padding-top: 8px;
 }
 
-.image-catalog label {
-  font-weight: 600;
-}
-
-.image-catalog input[type="file"] {
-  max-width: 100%;
-  font: inherit;
-}
-
 #choose-image-folder {
   justify-self: start;
   min-height: 40px;
@@ -109,10 +94,6 @@ p {
 #choose-image-folder:disabled {
   background: #4b5563;
   cursor: wait;
-}
-
-.image-catalog [hidden] {
-  display: none;
 }
 
 .project-io label {
@@ -199,14 +180,6 @@ p {
   font-size: 0.8rem;
 }
 
-.description-selection {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #374151;
-  font-size: 0.8rem;
-}
-
 .unassigned-pane > textarea,
 .caption-editor textarea,
 .dictionary-rule textarea,
@@ -273,11 +246,6 @@ p {
   text-align: left;
   overflow-wrap: anywhere;
   cursor: pointer;
-}
-
-.image-tile.selected {
-  border: 3px solid #1d4ed8;
-  padding: 6px;
 }
 
 .image-tile img,
@@ -442,7 +410,6 @@ p {
 }
 
 .tabs button:focus-visible,
-.image-catalog input:focus-visible,
 .workspace input:focus-visible,
 .workspace textarea:focus-visible,
 .dictionary-settings input:focus-visible,
@@ -649,6 +616,7 @@ p {
 .setup-panel h1,
 .project-toolbar h1 {
   margin: 0;
+  font-size: 1.15rem;
 }
 
 .setup-panel p {
@@ -668,8 +636,6 @@ p {
 }
 
 .setup-panel > button:focus-visible,
-.toolbar-actions button:focus-visible,
-.add-photos:focus-visible,
 .toolbar-actions button:focus-visible {
   outline: 3px solid #f59e0b;
   outline-offset: 2px;
@@ -685,14 +651,14 @@ p {
   z-index: 20;
   top: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto minmax(140px, 240px);
   align-items: center;
-  gap: 10px 20px;
-  margin: 0 -28px 22px;
-  padding: 12px 28px;
+  gap: 8px 14px;
+  margin: 0 -28px 14px;
+  padding: 6px 28px;
   border-bottom: 1px solid #e2e8f0;
   background: rgb(255 255 255 / 96%);
-  box-shadow: 0 4px 16px rgb(15 23 42 / 5%);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 4%);
   backdrop-filter: blur(12px);
 }
 
@@ -711,8 +677,8 @@ p {
 }
 
 .project-toolbar .tabs button {
-  min-height: 36px;
-  padding: 6px 10px;
+  min-height: 30px;
+  padding: 4px 9px;
   border: 0;
   border-radius: 7px;
 }
@@ -723,6 +689,12 @@ p {
   gap: 8px;
 }
 
+.project-toolbar .toolbar-actions button {
+  min-height: 30px;
+  padding: 4px 9px;
+  font-size: 0.82rem;
+}
+
 .toolbar-actions button:disabled {
   color: #64748b;
   background: #e2e8f0;
@@ -731,13 +703,18 @@ p {
 
 .project-toolbar .status,
 .project-toolbar .summary {
-  grid-column: 1 / -1;
+  min-width: 0;
+  margin: 0;
 }
 
 .project-toolbar .status {
-  padding: 4px 0 0;
+  padding: 0;
   background: transparent;
-  font-size: 0.88rem;
+  font-size: 0.72rem;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-toolbar .status[data-dirty="true"] {
@@ -745,16 +722,12 @@ p {
   background: transparent;
 }
 
-.project-toolbar .summary {
-  font-size: 0.78rem;
-}
-
 .tab-panel {
   padding-top: 0;
 }
 
 .workspace {
-  grid-template-columns: minmax(190px, 245px) minmax(0, 1fr);
+  grid-template-columns: minmax(270px, 30vw) minmax(0, 1fr);
   gap: 24px;
   margin-top: 0;
   align-items: start;
@@ -774,8 +747,7 @@ p {
   top: 134px;
 }
 
-.pane-heading,
-.image-catalog-heading {
+.pane-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -783,7 +755,6 @@ p {
 }
 
 .pane-heading h2,
-.image-catalog-heading h2,
 .groups-heading h2 {
   margin: 0;
 }
@@ -793,48 +764,8 @@ p {
   font-size: 0.85rem;
 }
 
-.image-catalog {
-  display: grid;
-  gap: 8px;
-  margin: 0 0 14px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-}
-
-.image-catalog-heading {
-  flex-wrap: wrap;
-}
-
-.image-catalog-heading h2 {
-  flex: 1 0 100%;
-  font-size: 1.05rem;
-}
-
-.image-catalog input[type="file"] {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  clip-path: inset(50%);
-}
-
-.add-photos {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding: 4px 8px;
-  border-radius: 7px;
-  color: #334155;
-  background: #e2e8f0;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
 .unassigned-list {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
   max-height: calc(100vh - 260px);
   padding: 2px;
@@ -866,8 +797,7 @@ p {
 
 .image-tile.selected {
   padding: 0;
-  outline: 3px solid #2563eb;
-  outline-offset: -3px;
+  border: 3px solid #2563eb;
 }
 
 .image-tile img {
@@ -898,14 +828,17 @@ p {
 }
 
 .unassigned-controls {
-  position: relative;
+  position: absolute;
+  z-index: 3;
+  right: 4px;
+  bottom: 4px;
+  left: 4px;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  height: 0;
-  margin: 0;
+  gap: 4px;
   padding: 0;
-  overflow: hidden;
+  border-radius: 6px;
   opacity: 0;
   pointer-events: none;
 }
@@ -913,18 +846,13 @@ p {
 .unassigned-item:hover .unassigned-controls,
 .unassigned-item:focus-within .unassigned-controls,
 .image-tile.selected ~ .unassigned-controls {
-  height: auto;
-  margin-top: 3px;
   padding: 4px;
-  overflow: visible;
-  border-radius: 6px;
   background: rgb(255 255 255 / 95%);
   opacity: 1;
   pointer-events: auto;
 }
 
-.unassigned-controls button,
-.unassigned-controls .description-selection {
+.unassigned-controls button {
   min-height: 26px;
   padding: 3px 5px;
   border-radius: 5px;
@@ -1211,21 +1139,20 @@ p {
   }
 
   .project-toolbar {
-    grid-template-columns: 1fr auto;
-    gap: 8px;
-    margin: 0 -12px 16px;
-    padding: 10px 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 8px;
+    margin: 0 -12px 12px;
+    padding: 5px 12px;
   }
 
   .project-name {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    font-size: 0.8rem;
+    display: none;
   }
 
   .project-toolbar .tabs {
     justify-content: flex-start;
-    grid-row: 3;
+    grid-column: 1;
+    grid-row: 2;
   }
 
   .toolbar-actions {
@@ -1233,9 +1160,10 @@ p {
     grid-row: 1;
   }
 
-  .project-toolbar .status,
-  .project-toolbar .summary {
-    grid-column: 1 / -1;
+  .project-toolbar .status {
+    grid-column: 2;
+    grid-row: 2;
+    text-align: right;
   }
 
   .workspace {
@@ -1248,14 +1176,10 @@ p {
   }
 
   .unassigned-list {
-    display: flex;
-    max-height: 200px;
-    overflow-x: auto;
-    overflow-y: hidden;
-  }
-
-  .unassigned-item {
-    flex: 0 0 96px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-height: 260px;
+    overflow: auto;
   }
 
   .post-slots {
