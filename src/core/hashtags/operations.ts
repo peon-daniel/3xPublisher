@@ -15,10 +15,10 @@ export function saveDictionaryRule(
   if (normalizedIdentifier.length === 0) {
     return { ok: false, error: "Enter an identifier." };
   }
-  if (/[,\s_-]/.test(normalizedIdentifier)) {
+  if (/[,\s]/.test(normalizedIdentifier)) {
     return {
       ok: false,
-      error: "Identifiers cannot contain commas, spaces, underscores, or hyphens."
+      error: "Identifiers cannot contain commas or spaces."
     };
   }
 

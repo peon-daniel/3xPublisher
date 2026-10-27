@@ -9,16 +9,33 @@ interface DirectoryFileHandle {
   getFile(): Promise<File>;
 }
 
-interface DirectoryDirectoryHandle {
+export interface ProjectDirectoryHandle {
   kind: "directory";
   name: string;
   values(): AsyncIterable<unknown>;
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<WritableProjectFileHandle>;
 }
 
-export type DirectoryPicker = (options: { mode: "read" }) => Promise<DirectoryDirectoryHandle>;
+export interface WritableProjectFileHandle {
+  getFile(): Promise<File>;
+  createWritable(): Promise<{
+    write(data: string): Promise<void>;
+    close(): Promise<void>;
+    abort?(): Promise<void>;
+  }>;
+}
+
+export type DirectoryPicker = (
+  options: { mode: "readwrite" }
+) => Promise<ProjectDirectoryHandle>;
 
 export type ReadSelectedDirectoryResult =
-  | { ok: true; directoryName: string; files: SelectedDirectoryFile[] }
+  | {
+      ok: true;
+      directoryName: string;
+      files: SelectedDirectoryFile[];
+      handle: ProjectDirectoryHandle;
+    }
   | { ok: false; cancelled: true }
   | { ok: false; error: string };
 
@@ -32,9 +49,9 @@ export async function readSelectedDirectory(
     };
   }
 
-  let directory: DirectoryDirectoryHandle;
+  let directory: ProjectDirectoryHandle;
   try {
-    directory = await picker({ mode: "read" });
+    directory = await picker({ mode: "readwrite" });
   } catch (error) {
     if (isAbortError(error)) {
       return { ok: false, cancelled: true };
@@ -47,17 +64,33 @@ export async function readSelectedDirectory(
 
   try {
     const files = await readDirectory(directory, directory.name);
-    return { ok: true, directoryName: directory.name, files };
+    return { ok: true, directoryName: directory.name, files, handle: directory };
   } catch (error) {
     return {
       ok: false,
       error: `Could not read the selected image folder: ${describeError(error)}`
     };
   }
+
+}
+
+export async function readDirectoryProjectFile(
+  directory: ProjectDirectoryHandle,
+  filename: string
+): Promise<File | undefined> {
+  try {
+    const handle = await directory.getFileHandle(filename);
+    return await handle.getFile();
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 async function readDirectory(
-  directory: DirectoryDirectoryHandle,
+  directory: ProjectDirectoryHandle,
   relativePath: string
 ): Promise<SelectedDirectoryFile[]> {
   const files: SelectedDirectoryFile[] = [];
@@ -103,13 +136,18 @@ function isAbortError(error: unknown): boolean {
   return typeof error === "object" && error !== null && Reflect.get(error, "name") === "AbortError";
 }
 
-function isDirectoryDirectoryHandle(value: unknown): value is DirectoryDirectoryHandle {
+function isNotFoundError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && Reflect.get(error, "name") === "NotFoundError";
+}
+
+function isDirectoryDirectoryHandle(value: unknown): value is ProjectDirectoryHandle {
   return (
     typeof value === "object" &&
     value !== null &&
     Reflect.get(value, "kind") === "directory" &&
     typeof Reflect.get(value, "name") === "string" &&
-    typeof Reflect.get(value, "values") === "function"
+    typeof Reflect.get(value, "values") === "function" &&
+    typeof Reflect.get(value, "getFileHandle") === "function"
   );
 }
 

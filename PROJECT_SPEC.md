@@ -32,12 +32,19 @@ The JSON project file is the only planned interface between the website and publ
 ## 5. Core website behavior
 
 - Show unassigned photos in a left pane and three-post groups in a right pane.
+- Use a compact top toolbar and a folder-first project startup. After a project loads, hide
+  the startup panel and show project navigation, save/export actions, and persistence status.
+- In the workspace, show the photo catalog as a left rail and the three post previews within
+  each group side by side; keep the workspace usable on narrow screens.
 - Support assigning photos, making carousels, reordering carousel images, editing descriptions and hashtags, and moving groups/posts under the rules in `UI_UX_SPEC.md`.
 - Keep one empty three-post placeholder at the bottom. It is not a committed group until content is added.
 - Keep published groups in a locked, gray block at the top.
 - Support a temporary preview that places the next ready unpublished group at the top for visualizing the expected grid. Cancel must restore the prior display and must not modify persistent order or JSON.
 - Persist hidden-image state, custom unassigned-image order, dictionary rules, settings, group/post data, and publication state in JSON.
 - Display a clear unsaved-change indicator when current state differs from the last successfully saved/exported project file.
+- In browsers supporting the directory picker, autosave project JSON to the user-selected
+  folder after explicit read/write permission. Keep the folder handle for the current page
+  session only and offer export when autosave is unavailable or fails.
 - Export a numbered JSON file when direct saving to the selected folder is not available.
 
 ## 6. Image and post rules

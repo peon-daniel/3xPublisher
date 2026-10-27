@@ -1,11 +1,22 @@
 import "./styles.css";
 import { detectFileAccessCapabilities } from "./adapters/fileAccess/capabilities";
 import { readSelectedProjectFile } from "./adapters/fileAccess/readers";
-import { readSelectedDirectory } from "./adapters/fileAccess/readSelectedDirectory";
-import type { SelectedDirectoryFile } from "./adapters/fileAccess/readSelectedDirectory";
-import { downloadTextFile, saveWithFilePicker } from "./adapters/fileAccess/writers";
+import {
+  readDirectoryProjectFile,
+  readSelectedDirectory
+} from "./adapters/fileAccess/readSelectedDirectory";
+import type {
+  ProjectDirectoryHandle,
+  SelectedDirectoryFile
+} from "./adapters/fileAccess/readSelectedDirectory";
+import {
+  downloadTextFile,
+  saveWithFilePicker,
+  writeSelectedFile
+} from "./adapters/fileAccess/writers";
 import { getNextNumberedExportFilename } from "./core/io/fileNaming";
 import { importProject } from "./core/io/importProject";
+import { selectProjectJsonFilename } from "./core/io/selectProjectJson";
 import { createPersistenceState, transitionPersistenceState } from "./core/io/persistState";
 import { serializeProject } from "./core/io/serializeProject";
 import { createEmptyProject } from "./core/project/defaults";
@@ -17,6 +28,13 @@ import {
   updatePostHashtagLimit,
   updateUnassignedImageDescriptions
 } from "./core/hashtags/operations";
+import { readImageIdentifierAnalysis } from "./core/hashtags/imageIdentifiers";
+import type { ImageIdentifierAnalysis } from "./core/hashtags/imageIdentifiers";
+import { collectDictionarySuggestions } from "./core/hashtags/dictionarySuggestions";
+import type {
+  AnalyzedImageIdentifiers,
+  DictionarySuggestion
+} from "./core/hashtags/dictionarySuggestions";
 import type { ProjectContentResult } from "./core/hashtags/operations";
 import {
   findNextReadyGroupId
@@ -60,39 +78,42 @@ const capabilities = detectFileAccessCapabilities();
 
 app.innerHTML = `
   <main class="shell">
-    <h1>3xPublisher</h1>
-    <p>Plan and organize images for your Instagram grid.</p>
-    <section class="project-io" aria-labelledby="project-io-title">
-      <h2 id="project-io-title">Project file</h2>
-      <label for="project-file">Open an existing JSON project</label>
-      <input id="project-file" type="file" accept=".json,application/json" />
-      <button id="new-project" type="button">Start a new project</button>
-      <label for="export-filename">Export filename</label>
-      <input id="export-filename" type="text" autocomplete="off" spellcheck="false" />
-      <p class="help-text">The app cannot scan your project folder for existing export names. Choose a filename that does not conflict.</p>
-      <button id="save-project" type="button">Save / Export JSON</button>
+    <section id="setup-panel" class="setup-panel" aria-labelledby="app-title">
+      <h1 id="app-title">3xPublisher</h1>
+      <p>Choose your local project folder. Photos and project data stay on this device.</p>
+      <button id="choose-image-folder" type="button">Choose project folder</button>
+      <p id="folder-help" class="help-text"></p>
+      <div id="fallback-project-controls" hidden>
+        <label for="project-file">Open a project JSON file</label>
+        <input id="project-file" type="file" accept=".json,application/json" />
+        <button id="new-project" type="button">Start a new project</button>
+        <label for="image-folder">Or choose a project image folder</label>
+        <input id="image-folder" type="file" accept="image/*" multiple webkitdirectory />
+      </div>
+    </section>
+    <header id="project-toolbar" class="project-toolbar" hidden>
+      <h1>3xPublisher</h1>
+      <span id="project-name" class="project-name"></span>
+      <nav class="tabs" role="tablist" aria-label="Project views">
+        <button id="planner-tab" type="button" role="tab" aria-selected="true" aria-controls="planner-panel">Planner</button>
+        <button id="dictionary-tab" type="button" role="tab" aria-selected="false" aria-controls="dictionary-panel">Dictionary</button>
+      </nav>
+      <div class="toolbar-actions">
+        <button id="save-project" type="button">Save now</button>
+        <button id="export-project" type="button">Export copy</button>
+      </div>
       <p id="project-status" class="status" role="status" aria-live="polite"></p>
       <p id="project-summary" class="summary"></p>
-    </section>
-    <nav class="tabs" role="tablist" aria-label="Project views">
-      <button id="planner-tab" type="button" role="tab" aria-selected="true" aria-controls="planner-panel">Planner</button>
-      <button id="dictionary-tab" type="button" role="tab" aria-selected="false" aria-controls="dictionary-panel">Dictionary</button>
-    </nav>
+    </header>
     <section id="planner-panel" class="tab-panel" role="tabpanel" aria-labelledby="planner-tab">
-      <section class="image-catalog" aria-labelledby="image-catalog-title">
-      <h2 id="image-catalog-title">Image catalog</h2>
-      <label for="image-files">Add selected image files</label>
-      <input id="image-files" type="file" accept="image/*" multiple />
-      <div id="folder-picker">
-        <button id="choose-image-folder" type="button">Choose image folder on this device</button>
-        <div id="folder-input-fallback">
-          <label for="image-folder">Reconcile against a selected project image folder</label>
-          <input id="image-folder" type="file" accept="image/*" multiple webkitdirectory />
+      <section id="image-catalog" class="image-catalog" aria-labelledby="image-catalog-title">
+        <div class="image-catalog-heading">
+          <h2 id="image-catalog-title">Photos</h2>
+          <label class="add-photos" for="image-files">＋ Add photos</label>
+          <input id="image-files" type="file" accept="image/*" multiple />
         </div>
-      </div>
-      <p id="folder-help" class="help-text"></p>
-      <p id="image-summary" class="summary"></p>
-      <ul id="image-report" class="image-report" aria-live="polite"></ul>
+        <p id="image-summary" class="summary"></p>
+        <ul id="image-report" class="image-report" aria-live="polite"></ul>
       </section>
       <div id="workspace-root"></div>
     </section>
@@ -104,15 +125,18 @@ app.innerHTML = `
 
 const fileInput = requireElement<HTMLInputElement>("#project-file");
 const newProjectButton = requireElement<HTMLButtonElement>("#new-project");
-const exportFilename = requireElement<HTMLInputElement>("#export-filename");
 const saveButton = requireElement<HTMLButtonElement>("#save-project");
+const exportButton = requireElement<HTMLButtonElement>("#export-project");
 const status = requireElement<HTMLParagraphElement>("#project-status");
 const summary = requireElement<HTMLParagraphElement>("#project-summary");
 const imageFilesInput = requireElement<HTMLInputElement>("#image-files");
 const imageFolderInput = requireElement<HTMLInputElement>("#image-folder");
-const folderPicker = requireElement<HTMLDivElement>("#folder-picker");
-const folderInputFallback = requireElement<HTMLDivElement>("#folder-input-fallback");
 const chooseImageFolderButton = requireElement<HTMLButtonElement>("#choose-image-folder");
+const fallbackProjectControls = requireElement<HTMLDivElement>("#fallback-project-controls");
+const setupPanel = requireElement<HTMLElement>("#setup-panel");
+const projectToolbar = requireElement<HTMLElement>("#project-toolbar");
+const projectName = requireElement<HTMLSpanElement>("#project-name");
+const imageCatalog = requireElement<HTMLElement>("#image-catalog");
 const folderHelp = requireElement<HTMLParagraphElement>("#folder-help");
 const imageSummary = requireElement<HTMLParagraphElement>("#image-summary");
 const imageReport = requireElement<HTMLUListElement>("#image-report");
@@ -142,14 +166,24 @@ let dictionarySampleFilename = "P8260673_d3, fp100, halfframe, rodinal.jpg";
 let dictionaryMessage = "";
 let activeTab: "planner" | "dictionary" = "planner";
 let previewGroupId: string | null = null;
+let fullImageFilename: string | null = null;
+let projectDirectory: ProjectDirectoryHandle | null = null;
+let activeProjectFilename: string | null = null;
+let projectLoaded = false;
+let projectRevision = 0;
+let projectSession = 0;
+let autoSaveTimer: number | undefined;
+let autoSaveQueue: Promise<void> = Promise.resolve();
+const imageIdentifiersByPath = new Map<string, ImageIdentifierAnalysis>();
+let dismissedSuggestionIdentifiers = new Set<string>();
+let lastDictionarySuggestions: DictionarySuggestion[] = [];
+let folderIdentifierAnalyses: AnalyzedImageIdentifiers[] = [];
 
-folderPicker.hidden = !capabilities.directoryPicker && !capabilities.directoryInput;
 chooseImageFolderButton.hidden = !capabilities.directoryPicker;
-folderInputFallback.hidden = capabilities.directoryPicker || !capabilities.directoryInput;
-folderHelp.textContent = capabilities.directoryPicker || capabilities.directoryInput
-  ? "The selected folder is read in your browser on this device; images are not uploaded. Choose the project image folder: references to images missing from it may be removed from the project."
-  : "Folder scanning is unavailable in this browser. Select image files manually; files not selected will not be marked missing.";
-exportFilename.value = nextExportFilename();
+fallbackProjectControls.hidden = capabilities.directoryPicker;
+folderHelp.textContent = capabilities.directoryPicker
+  ? "Choose a folder to read its photos and save the project locally. The app does not upload or modify your images."
+  : "Folder auto-save is unavailable in this browser. Open a project JSON or start a project, then use file selection and export.";
 bindWorkspaceEvents(workspaceRoot, createWorkspaceActions());
 plannerTab.addEventListener("click", () => setActiveTab("planner"));
 dictionaryTab.addEventListener("click", () => setActiveTab("dictionary"));
@@ -177,13 +211,22 @@ fileInput.addEventListener("change", async () => {
   }
 
   project = result.project;
+  startProjectSession();
   persistence = transitionPersistenceState(persistence, "loaded-from-selected-file");
+  projectDirectory = null;
+  activeProjectFilename = null;
+  projectLoaded = true;
+  setupPanel.hidden = true;
+  projectToolbar.hidden = false;
+  projectName.textContent = readResult.filename;
   clearPreviewSources();
   knownExportFilenames.add(readResult.filename);
-  exportFilename.value = nextExportFilename();
   lastImageReport = [];
   lastAmbiguities = [];
   resolvedImagePaths.clear();
+  imageIdentifiersByPath.clear();
+  dismissedSuggestionIdentifiers.clear();
+  folderIdentifierAnalyses = [];
   selectedImageFilename = null;
   selectedDescriptionFilenames.clear();
   bulkDescription = "";
@@ -199,13 +242,22 @@ fileInput.addEventListener("change", async () => {
 });
 
 newProjectButton.addEventListener("click", () => {
+  startProjectSession();
   project = createEmptyProject();
-  persistence = transitionPersistenceState(persistence, "project-changed");
+  projectDirectory = null;
+  activeProjectFilename = null;
+  projectLoaded = true;
+  setupPanel.hidden = true;
+  projectToolbar.hidden = false;
+  projectName.textContent = "New project";
+  markProjectChanged();
   clearPreviewSources();
-  exportFilename.value = nextExportFilename();
   lastImageReport = [];
   lastAmbiguities = [];
   resolvedImagePaths.clear();
+  imageIdentifiersByPath.clear();
+  dismissedSuggestionIdentifiers.clear();
+  folderIdentifierAnalyses = [];
   selectedImageFilename = null;
   selectedDescriptionFilenames.clear();
   bulkDescription = "";
@@ -218,12 +270,20 @@ newProjectButton.addEventListener("click", () => {
 });
 
 imageFilesInput.addEventListener("change", () => {
-  reconcileSelectedFiles(imageFilesInput.files, false);
+  const files = Array.from(imageFilesInput.files ?? []).map((file) => ({
+    file,
+    relativePath: file.name
+  }));
+  void analyzeAndReconcileSelectedImages(files, false);
   imageFilesInput.value = "";
 });
 
 imageFolderInput.addEventListener("change", () => {
-  reconcileSelectedFiles(imageFolderInput.files, capabilities.directoryInput);
+  const files = Array.from(imageFolderInput.files ?? []).map((file) => ({
+    file,
+    relativePath: file.webkitRelativePath || file.name
+  }));
+  void analyzeAndReconcileSelectedImages(files, capabilities.directoryInput);
   imageFolderInput.value = "";
 });
 
@@ -239,7 +299,77 @@ chooseImageFolderButton.addEventListener("click", async () => {
     return;
   }
 
-  reconcileSelectedImages(result.files, true);
+  const topLevelFilenames = result.files
+    .map((file) => file.relativePath)
+    .filter((path) => path.startsWith(`${result.directoryName}/`))
+    .map((path) => path.slice(result.directoryName.length + 1))
+    .filter((path) => !path.includes("/"));
+  const projectFilename = selectProjectJsonFilename(topLevelFilenames);
+  let nextProject = createEmptyProject();
+  if (projectFilename) {
+    let projectFile: File | undefined;
+    try {
+      projectFile = await readDirectoryProjectFile(result.handle, projectFilename);
+    } catch (error) {
+      lastMessage = `Could not read "${projectFilename}": ${describeError(error)}`;
+      render();
+      return;
+    }
+    if (!projectFile) {
+      lastMessage = `Could not find "${projectFilename}" in the selected folder. The project was not replaced.`;
+      render();
+      return;
+    }
+    const readResult = await readSelectedProjectFile(projectFile);
+    if (!readResult.ok) {
+      lastMessage = readResult.error;
+      render();
+      return;
+    }
+    const imported = importProject(readResult.text);
+    if (!imported.ok) {
+      lastMessage =
+        `Could not load "${projectFilename}". ${imported.errors.join(" ")} The project was not replaced.`;
+      render();
+      return;
+    }
+    nextProject = imported.project;
+    lastMessage =
+      imported.warnings.length > 0
+        ? `Loaded "${projectFilename}" with warnings: ${imported.warnings.join(" ")}`
+        : `Loaded "${projectFilename}".`;
+  } else {
+    lastMessage = "New project created. Changes will auto-save to instagram-plan.json.";
+  }
+
+  clearPreviewSources();
+  project = nextProject;
+  startProjectSession();
+  projectDirectory = result.handle;
+  activeProjectFilename = projectFilename ?? "instagram-plan.json";
+  projectLoaded = true;
+  setupPanel.hidden = true;
+  projectToolbar.hidden = false;
+  projectName.textContent = `${result.directoryName} / ${activeProjectFilename}`;
+  persistence = projectFilename
+    ? transitionPersistenceState(persistence, "loaded-from-selected-file")
+    : createPersistenceState();
+  knownExportFilenames.clear();
+  for (const filename of topLevelFilenames) {
+    if (isJsonFilename(filename)) {
+      knownExportFilenames.add(filename);
+    }
+  }
+  lastAmbiguities = [];
+  resolvedImagePaths.clear();
+  dismissedSuggestionIdentifiers.clear();
+  imageIdentifiersByPath.clear();
+  workspaceSelection = null;
+  previewGroupId = null;
+  fullImageFilename = null;
+
+  imageIdentifiersByPath.clear();
+  await analyzeAndReconcileSelectedImages(result.files, true);
 });
 
 document.addEventListener("keydown", (event) => {
@@ -267,11 +397,76 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-saveButton.addEventListener("click", async () => {
-  const filename = exportFilename.value.trim();
-  if (!isJsonFilename(filename)) {
-    lastMessage = "Enter a JSON filename using letters, numbers, dots, underscores, or hyphens.";
-    render();
+saveButton.addEventListener("click", () => {
+  void saveProjectNow();
+});
+
+exportButton.addEventListener("click", () => {
+  exportProjectCopy();
+});
+
+window.addEventListener("beforeunload", (event) => {
+  if (persistence.dirty) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+});
+
+function applyPersistenceEvent(event: PersistenceEvent): void {
+  persistence = transitionPersistenceState(persistence, event);
+}
+
+function markProjectChanged(): void {
+  persistence = transitionPersistenceState(persistence, "project-changed");
+  projectRevision += 1;
+  scheduleAutoSave();
+}
+
+function scheduleAutoSave(): void {
+  if (!projectDirectory || !projectLoaded) {
+    return;
+  }
+  if (autoSaveTimer !== undefined) {
+    window.clearTimeout(autoSaveTimer);
+  }
+  autoSaveTimer = window.setTimeout(() => {
+    autoSaveTimer = undefined;
+    void enqueueDirectorySnapshot();
+  }, 400);
+}
+
+function startProjectSession(): void {
+  if (autoSaveTimer !== undefined) {
+    window.clearTimeout(autoSaveTimer);
+    autoSaveTimer = undefined;
+  }
+  projectSession += 1;
+}
+
+function enqueueDirectorySnapshot(): Promise<void> {
+  if (!projectDirectory) {
+    return Promise.resolve();
+  }
+
+  const snapshot = {
+    directory: projectDirectory,
+    filename: activeProjectFilename ?? "instagram-plan.json",
+    project,
+    revision: projectRevision,
+    session: projectSession
+  };
+  autoSaveQueue = autoSaveQueue.then(() => saveDirectorySnapshot(snapshot));
+  return autoSaveQueue;
+}
+
+async function saveProjectNow(): Promise<void> {
+  if (autoSaveTimer !== undefined) {
+    window.clearTimeout(autoSaveTimer);
+    autoSaveTimer = undefined;
+  }
+
+  if (projectDirectory) {
+    await enqueueDirectorySnapshot();
     return;
   }
 
@@ -279,17 +474,18 @@ saveButton.addEventListener("click", async () => {
   try {
     contents = serializeProject(project);
   } catch (error) {
-    persistence = transitionPersistenceState(persistence, "persistence-failed");
+    applyPersistenceEvent("persistence-failed");
     lastMessage = `Could not prepare the project for saving: ${describeError(error)}`;
     render();
     return;
   }
 
+  const filename = activeProjectFilename ?? "instagram-plan.json";
   if (capabilities.saveFilePicker) {
     const result = await saveWithFilePicker(contents, filename);
     if (result.ok) {
       applyPersistenceEvent("save-succeeded");
-      knownExportFilenames.add(filename);
+      activeProjectFilename = filename;
       lastMessage = "Project saved to the file you selected.";
     } else if ("cancelled" in result) {
       lastMessage = "Save cancelled. Your project remains unchanged.";
@@ -301,42 +497,117 @@ saveButton.addEventListener("click", async () => {
     return;
   }
 
+  exportProjectCopy();
+}
+
+async function saveDirectorySnapshot(snapshot: {
+  directory: ProjectDirectoryHandle;
+  filename: string;
+  project: ProjectData;
+  revision: number;
+  session: number;
+}): Promise<void> {
+  if (snapshot.session !== projectSession || snapshot.revision !== projectRevision) {
+    return;
+  }
+
+  let contents: string;
+  try {
+    contents = serializeProject(snapshot.project);
+  } catch (error) {
+    if (snapshot.session === projectSession && snapshot.revision === projectRevision) {
+      applyPersistenceEvent("persistence-failed");
+      lastMessage = `Could not prepare the project for auto-save: ${describeError(error)}`;
+      render();
+    }
+    return;
+  }
+
+  lastMessage = "Saving changes to the selected project folder…";
+  render();
+  let result: Awaited<ReturnType<typeof writeSelectedFile>>;
+  try {
+    const handle = await snapshot.directory.getFileHandle(snapshot.filename, { create: true });
+    result = await writeSelectedFile(handle, contents);
+  } catch (error) {
+    result = {
+      ok: false,
+      error: `Could not open "${snapshot.filename}" in the selected folder: ${describeError(error)}`
+    };
+  }
+
+  if (snapshot.session !== projectSession || snapshot.revision !== projectRevision) {
+    return;
+  }
+
+  if (result.ok) {
+    applyPersistenceEvent("save-succeeded");
+    knownExportFilenames.add(snapshot.filename);
+    lastMessage = `Project auto-saved to "${snapshot.filename}".`;
+  } else {
+    applyPersistenceEvent("persistence-failed");
+    lastMessage = `${result.error} Changes remain in memory; use Export copy to make a backup.`;
+  }
+  render();
+}
+
+function exportProjectCopy(): void {
   if (!capabilities.download) {
     applyPersistenceEvent("persistence-failed");
-    lastMessage = "This browser cannot save or download a project file.";
+    lastMessage = "This browser cannot download a project file.";
     render();
     return;
   }
 
+  let contents: string;
+  try {
+    contents = serializeProject(project);
+  } catch (error) {
+    applyPersistenceEvent("persistence-failed");
+    lastMessage = `Could not prepare the project for export: ${describeError(error)}`;
+    render();
+    return;
+  }
+
+  const filename = getNextNumberedExportFilename(knownExportFilenames);
   const result = downloadTextFile(contents, filename);
   if (result.ok) {
     applyPersistenceEvent("export-succeeded");
     knownExportFilenames.add(filename);
-    exportFilename.value = nextExportFilename();
     lastMessage = `Download started as "${filename}". Copy it into your project folder.`;
   } else {
     applyPersistenceEvent("persistence-failed");
     lastMessage = result.error;
   }
   render();
-});
-
-function applyPersistenceEvent(event: PersistenceEvent): void {
-  persistence = transitionPersistenceState(persistence, event);
 }
 
-function nextExportFilename(): string {
-  return getNextNumberedExportFilename(knownExportFilenames);
-}
-
-function reconcileSelectedFiles(files: FileList | null, sourceComplete: boolean): void {
-  reconcileSelectedImages(
-    Array.from(files ?? []).map((file) => ({
-      file,
-      relativePath: file.webkitRelativePath || file.name
-    })),
-    sourceComplete
+async function analyzeAndReconcileSelectedImages(
+  selectedFiles: SelectedDirectoryFile[],
+  sourceComplete: boolean
+): Promise<void> {
+  const supportedFiles = selectedFiles.filter(({ file }) => isSupportedImageFile(file));
+  const analyses = await Promise.all(
+    supportedFiles.map(async ({ file, relativePath }) => ({
+      filename: file.name,
+      relativePath,
+      analysis: await readImageIdentifierAnalysis(file)
+    }))
   );
+  for (const { relativePath, analysis } of analyses) {
+    imageIdentifiersByPath.set(relativePath, analysis);
+  }
+  folderIdentifierAnalyses = Array.from(imageIdentifiersByPath, ([relativePath, analysis]) => ({
+    filename: relativePath.split("/").at(-1) ?? relativePath,
+    identifiers: analysis.identifiers,
+    source: analysis.source
+  }));
+  lastDictionarySuggestions = collectDictionarySuggestions(
+    folderIdentifierAnalyses,
+    project.dictionary,
+    dismissedSuggestionIdentifiers
+  );
+  reconcileSelectedImages(selectedFiles, sourceComplete);
 }
 
 function reconcileSelectedImages(
@@ -375,7 +646,7 @@ function runImageReconciliation(): void {
   });
   project = result.project;
   if (result.changed) {
-    applyPersistenceEvent("project-changed");
+    markProjectChanged();
   }
 
   lastImageReport = buildImageReport(result, latestSourceComplete);
@@ -443,8 +714,19 @@ function isJsonFilename(value: string): boolean {
 }
 
 function render(): void {
+  lastDictionarySuggestions = collectDictionarySuggestions(
+    folderIdentifierAnalyses,
+    project.dictionary,
+    dismissedSuggestionIdentifiers
+  );
+  setupPanel.hidden = projectLoaded;
+  projectToolbar.hidden = !projectLoaded;
+  plannerPanel.hidden = !projectLoaded || activeTab !== "planner";
+  dictionaryPanel.hidden = !projectLoaded || activeTab !== "dictionary";
   status.textContent = `${persistence.dirty ? "Unsaved changes" : statusLabel(persistence.status)}. ${lastMessage}`;
   status.dataset.dirty = String(persistence.dirty);
+  saveButton.disabled = !projectLoaded;
+  exportButton.disabled = !projectLoaded;
   summary.textContent = `Schema version ${project.schemaVersion} · ${project.images.length} image records · ${project.groups.length} groups`;
   const assignedFilenames = new Set(project.groups.flatMap((group) => group.posts.flatMap((post) => post.images)));
   const unassignedCount = project.images.filter((image) => !assignedFilenames.has(image.filename)).length;
@@ -507,13 +789,19 @@ function render(): void {
     defaultHashtagLimit: project.settings.defaultHashtagLimit,
     previewGroupId,
     nextReadyGroupId: findNextReadyGroupId(project),
+    fullImageFilename,
     imageUrlForFilename
   });
+  const photoPane = workspaceRoot.querySelector<HTMLElement>(".unassigned-pane");
+  if (photoPane) {
+    photoPane.prepend(imageCatalog);
+  }
   renderDictionary(dictionaryRoot, {
     dictionary: project.dictionary,
     defaultHashtagLimit: project.settings.defaultHashtagLimit,
     sampleFilename: dictionarySampleFilename,
     message: dictionaryMessage,
+    suggestions: lastDictionarySuggestions,
     onSaveRule(previousIdentifier, identifier, hashtags) {
       const result = saveDictionaryRule(
         project.dictionary,
@@ -544,6 +832,27 @@ function render(): void {
       dictionaryMessage = "Dictionary rule deleted.";
       applyContentChange("Dictionary rule deleted; saved post hashtags were not changed.");
     },
+    onAcceptSuggestion(identifier) {
+      const hashtag = `#${identifier}`;
+      const result = saveDictionaryRule(project.dictionary, null, identifier, [hashtag]);
+      if (!result.ok) {
+        dictionaryMessage = result.error;
+        render();
+        return;
+      }
+      project = { ...project, dictionary: result.dictionary };
+      dictionaryMessage = `Added ${identifier} → ${hashtag}. Existing post hashtags were not changed.`;
+      applyContentChange(dictionaryMessage);
+    },
+    onDismissSuggestion(identifier) {
+      dismissedSuggestionIdentifiers.add(identifier.toLocaleLowerCase());
+      lastDictionarySuggestions = collectDictionarySuggestions(
+        folderIdentifierAnalyses,
+        project.dictionary,
+        dismissedSuggestionIdentifiers
+      );
+      render();
+    },
     onSetDefaultLimit(limit) {
       applyContentResult(
         setDefaultHashtagLimit(project, limit),
@@ -568,6 +877,19 @@ function getVisibleUnassignedFilenames(): string[] {
         (showHidden || !image.hidden)
     )
   ).map((image) => image.filename);
+}
+
+function imageIdentifiersForFilename(filename: string): string[] | undefined {
+  const resolvedPath = resolvedImagePaths.get(filename);
+  if (resolvedPath) {
+    return imageIdentifiersByPath.get(resolvedPath)?.identifiers;
+  }
+
+  const matches = latestDiscoveredImages.filter((image) => image.filename === filename);
+  if (matches.length !== 1) {
+    return undefined;
+  }
+  return imageIdentifiersByPath.get(matches[0].relativePath)?.identifiers;
 }
 
 function createWorkspaceActions(): WorkspaceActions {
@@ -773,13 +1095,25 @@ function createWorkspaceActions(): WorkspaceActions {
       applyLayoutResult(result);
     },
     onAssignImage(filename, groupId, postIndex) {
-      applyLayoutResult(assignImageToPost(project, filename, groupId, postIndex));
+      applyLayoutResult(
+        assignImageToPost(
+          project,
+          filename,
+          groupId,
+          postIndex,
+          imageIdentifiersForFilename(filename)
+        )
+      );
     },
     onRemoveImage(groupId, postIndex, imageIndex) {
       applyLayoutResult(removeImageFromPost(project, groupId, postIndex, imageIndex));
     },
     onMoveCarouselImage(groupId, postIndex, imageIndex, direction) {
       applyLayoutResult(moveCarouselImage(project, groupId, postIndex, imageIndex, direction));
+    },
+    onToggleFullImage(filename) {
+      fullImageFilename = fullImageFilename === filename ? null : filename;
+      render();
     },
     onMoveGroup(groupId, direction) {
       applyLayoutResult(moveGroup(project, groupId, direction));
@@ -803,7 +1137,7 @@ function applyLayoutResult(
   }
 
   project = result.project;
-  persistence = transitionPersistenceState(persistence, "project-changed");
+  markProjectChanged();
   selectedImageFilename = null;
   const assignedFilenames = new Set(
     project.groups.flatMap((group) => group.posts.flatMap((post) => post.images))
@@ -847,7 +1181,7 @@ function applyContentResult(
 }
 
 function applyContentChange(successMessage: string): void {
-  persistence = transitionPersistenceState(persistence, "project-changed");
+  markProjectChanged();
   lastMessage = successMessage;
   render();
 }
@@ -857,8 +1191,8 @@ function setActiveTab(tab: "planner" | "dictionary"): void {
   const isPlanner = tab === "planner";
   plannerTab.setAttribute("aria-selected", String(isPlanner));
   dictionaryTab.setAttribute("aria-selected", String(!isPlanner));
-  plannerPanel.hidden = !isPlanner;
-  dictionaryPanel.hidden = isPlanner;
+  plannerPanel.hidden = !projectLoaded || !isPlanner;
+  dictionaryPanel.hidden = !projectLoaded || isPlanner;
 }
 
 function setOperationError(message: string): void {

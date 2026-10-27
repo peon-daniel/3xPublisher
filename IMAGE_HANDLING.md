@@ -61,6 +61,22 @@ Filename identifiers are parsed with the deterministic rules below; the image ID
 - Trim dictionary hashtag values, skip empty values, and remove duplicates case-insensitively while preserving the first value's spelling and position.
 - For example, `P8260673_d3, fp100, halfframe, rodinal.jpg` parses to `d3`, `fp100`, `halfframe`, and `rodinal`.
 
+## Embedded XMP subjects
+
+- When an image contains readable XMP `dc:subject` values, use those as its identifiers in
+  preference to filename-derived identifiers.
+- Strip leading `#` characters, trim whitespace, and replace internal whitespace with
+  underscores. Deduplicate identifiers case-insensitively while preserving their first-seen
+  order.
+- If XMP subjects are absent or unsupported, use the filename parsing rules above.
+- XMP is read locally from selected image bytes. It is not written back to image files or
+  stored in project JSON.
+- For dictionary review, show unknown identifiers as suggested rules mapping `identifier` to
+  `#identifier`. Suggestions are not applied automatically; each can be accepted or dismissed.
+- When a new post receives its first image, use the resolved XMP identifiers when available,
+  otherwise use filename identifiers, to generate its initial saved hashtags. Existing saved
+  hashtags are not regenerated after dictionary edits or lead-image changes.
+
 ## Hidden and unassigned ordering
 
 - Images are visible in Unassigned Photos unless JSON marks them hidden.

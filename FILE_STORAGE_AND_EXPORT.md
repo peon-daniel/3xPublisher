@@ -6,8 +6,10 @@ The portable JSON project file stored alongside the images is the intended sourc
 
 Canonical proposed filename: `instagram-plan.json`. Numbered exports start at
 `instagram-plan-001.json` and increment the highest recognized existing sequence by one,
-using at least three digits. If the app cannot reliably identify the newest version, ask the
-user to select the intended JSON instead of guessing.
+using at least three digits. When opening a selected project folder, the highest numbered
+recognized file is loaded; the canonical file is used only when no numbered file exists.
+Unrelated JSON files are ignored. If a recognized candidate cannot be read or validated, keep
+the current in-memory project and report the error rather than starting with a blank project.
 
 ## Browser constraints
 
@@ -18,19 +20,29 @@ download support independently. Reading an explicitly selected `File` does not r
 File System Access API. Direct writes use a user-selected writable file handle and are only
 reported as saved after both the write and close complete successfully.
 
-The Phase 2 shell imports only a user-selected JSON file and activates it only after parsing
-and validation succeed. On browsers with the Save File Picker API, saving asks the user to
-choose a destination. Otherwise, export starts a JSON download with an editable numbered
-filename. The app does not check the selected folder for existing export JSON filenames, so
-it cannot guarantee that the suggested export sequence is unused; the user must choose a
-non-conflicting name.
-Loading a project reports that it was loaded; it is not reported as a new save operation.
+The folder-first workflow requires an explicit user gesture to select the project folder. In
+Chromium, the app requests read/write permission to that selected folder so it can update the
+project JSON; image files are only read and are never modified. The folder handle exists only
+in the current page session and must be selected again after a reload. A selected JSON file is
+activated only after parsing and validation succeed. Browsers without the directory picker
+use a manual file workflow and cannot provide this folder autosave.
+
+When opening a folder, the app selects the highest numbered recognized project file, falling
+back to `instagram-plan.json`. If none exists, it starts a new project and creates that
+canonical file on the first change. Existing recognized JSON files are updated only after the
+user explicitly selects the folder and grants the requested access. Direct writes use the
+browser's safe writable-file stream and are only reported as saved after both write and close
+complete successfully. Loading a project is reported as loaded, not as a new save operation.
+
+When direct folder writing is unavailable or fails, the user can export a numbered JSON
+download. The app does not know whether the browser completed the download or whether the
+user copied it into the project folder, so the status says that copying is still required.
 
 Image discovery is explicit. In Chrome and other browsers exposing the File System Access
-directory picker, the app requests read-only access to a folder selected by the user, reads
-its image files in the browser, and displays them in the planner. The image bytes are not
-uploaded. Browsers without that API may use a directory file input, whose native chooser may
-use generic “upload” wording; that wording does not mean the app sends the files to a server.
+directory picker, the app reads image files in the browser from the folder selected by the
+user. The image bytes are not uploaded. Browsers without that API may use a directory file
+input, whose native chooser may use generic “upload” wording; that wording does not mean the
+app sends the files to a server.
 When only individual file selection is available, selected images are added without treating
 other catalog entries as missing. Folder reconciliation reports and leaves duplicate basenames
 unresolved until the user chooses the intended relative path. The choice is session-only
@@ -51,10 +63,13 @@ initiated download that still needs copying—not as a save to the selected proj
 
 - Track changes to layout, descriptions, hashtags, hidden state, dictionary, and settings.
 - Show a red unsaved notice whenever current state differs from the last successfully persisted/exported state.
-- If direct write access is available and the user granted permission, autosave may be used.
+- If direct write access is available and the user granted permission, autosave is used after
+  project edits. Autosave is debounced; an explicit Save now action also writes the latest
+  project snapshot to the selected folder.
 - If direct write is unavailable, provide an explicit export/download action and explain that the user must place the downloaded JSON in the project folder.
 - A successfully initiated export clears the dirty flag and sets the status to exported/downloaded-needs-copy. Any later edit makes the project dirty again.
-- Never overwrite an existing file without a supported, explicit user-authorized operation.
+- Never overwrite an existing project file without a supported, explicit user-authorized
+  folder selection and write permission.
 - Keep the previous project file intact if writing fails.
 - Export valid UTF-8 JSON with a schema version.
 - Offer recovery from in-memory state or browser-local recovery where possible, but do not present browser storage as a substitute for a downloaded project file.

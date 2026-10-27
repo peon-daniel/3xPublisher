@@ -2,9 +2,13 @@
 
 ## Main layout
 
+Use a compact project toolbar above the workspace. It provides the Planner and Dictionary
+views, project save/export actions, and a visible persistence status. Before a project is
+loaded, show a focused folder-selection panel; hide it after successful load.
+
 Use a two-pane workspace:
-- **Unassigned Photos** on the left, with thumbnails and a control at the bottom to show hidden images.
-- **3x post groups** on the right, ordered vertically.
+- **Unassigned Photos** in a narrow left sidebar with square thumbnails and a control to show hidden images.
+- **3x post groups** on the right, ordered vertically, with each group's three post previews side-by-side.
 
 A “3x post group” is one outer container holding exactly three post cards. Each post card represents one Instagram post and may hold multiple carousel images.
 
@@ -39,8 +43,12 @@ A “3x post group” is one outer container holding exactly three post cards. E
 ## Carousel and grid preview
 
 - Normal grid preview shows only the lead/thumbnail image for each post.
+- The default post thumbnail uses a 3:4 profile-grid crop; selecting it toggles to a contained
+  4:5 portrait preview so the full image can be inspected.
 - Hovering a post with a carousel shows all carousel images, both in the planner and preview.
 - Carousel order must be visible and editable.
+- Show descriptions on post hover or keyboard focus. Selecting a post reveals its editing and
+  ordering controls; selection must also be operable by touch.
 - Previewing a group temporarily places it at the top of the published block without mutating saved order.
 
 ## Captions and descriptions
@@ -56,6 +64,8 @@ A “3x post group” is one outer container holding exactly three post cards. E
 - Make core actions usable by keyboard, provide focus indicators, and use labels for controls.
 - Do not rely on color alone for published/unsaved/warning states.
 - Provide a usable layout at narrower viewport widths; exact breakpoints are an implementation choice.
+- At narrow widths, place the photo rail above the groups and keep the three post previews in
+  a horizontal row.
 - Drag-and-drop should have an alternative interaction for users or devices where dragging is difficult.
 
 ## Confirmations

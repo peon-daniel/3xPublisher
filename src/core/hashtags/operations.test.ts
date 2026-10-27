@@ -32,8 +32,11 @@ describe("hashtag and caption operations", () => {
     });
   });
 
-  it("rejects separators and duplicate case-insensitive identifiers", () => {
-    expect(saveDictionaryRule({}, null, "half-frame", ["#tag"])).toMatchObject({
+  it("allows compound identifiers and rejects spaces or duplicate case-insensitive identifiers", () => {
+    expect(saveDictionaryRule({}, null, "black_and_white", ["#tag"])).toMatchObject({
+      ok: true
+    });
+    expect(saveDictionaryRule({}, null, "half frame", ["#tag"])).toMatchObject({
       ok: false
     });
     expect(

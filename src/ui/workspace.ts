@@ -26,6 +26,7 @@ export interface WorkspaceOptions {
   defaultHashtagLimit: number;
   previewGroupId: string | null;
   nextReadyGroupId: string | null;
+  fullImageFilename: string | null;
   imageUrlForFilename(filename: string): string | undefined;
 }
 
@@ -75,6 +76,7 @@ export interface WorkspaceActions {
     imageIndex: number,
     direction: -1 | 1
   ): void;
+  onToggleFullImage(filename: string): void;
   onMoveGroup(groupId: string, direction: -1 | 1): void;
   onMovePost(groupId: string, postIndex: number, direction: -1 | 1): void;
   onAddGroup(): void;
@@ -241,7 +243,22 @@ export function renderWorkspace(root: HTMLElement, options: WorkspaceOptions): v
   const unassignedTitle = document.createElement("h2");
   unassignedTitle.id = "unassigned-title";
   unassignedTitle.textContent = "Unassigned Photos";
-  unassignedPane.append(unassignedTitle);
+  const photoCount = document.createElement("span");
+  photoCount.className = "photo-count";
+  photoCount.textContent = String(
+    options.project.images.filter((image) => {
+      return (
+        !options.project.groups.some((group) =>
+          group.posts.some((post) => post.images.includes(image.filename))
+        ) &&
+        (options.showHidden || !image.hidden)
+      );
+    }).length
+  );
+  const unassignedHeader = document.createElement("div");
+  unassignedHeader.className = "pane-heading";
+  unassignedHeader.append(unassignedTitle, photoCount);
+  unassignedPane.append(unassignedHeader);
 
   const unassignedList = document.createElement("ul");
   unassignedList.className = "unassigned-list";
@@ -553,10 +570,10 @@ function renderPost(
     handle.dataset.groupId = group.id;
     handle.dataset.postIndex = String(postIndex);
     handle.setAttribute("aria-label", `Drag post ${postIndex + 1}`);
-    const up = actionButton("Up", "move-post");
+    const up = actionButton("Move up", "move-post");
     up.dataset.direction = "-1";
     up.disabled = published || postIndex === 0;
-    const down = actionButton("Down", "move-post");
+    const down = actionButton("Move down", "move-post");
     down.dataset.direction = "1";
     down.disabled = published || postIndex === 2;
     heading.append(handle, up, down);
@@ -566,29 +583,73 @@ function renderPost(
   if (post.images.length === 0) {
     const empty = document.createElement("p");
     empty.className = "empty-message";
-    empty.textContent = "Drop or assign an image here.";
+    empty.textContent = "Add a photo";
     card.append(empty);
   } else {
-    const carousel = document.createElement("ol");
-    carousel.className = "carousel-list";
-    post.images.forEach((filename, imageIndex) => {
-      carousel.append(
-        renderCarouselItem(filename, group, postIndex, imageIndex, published, options)
-      );
-    });
-    card.append(carousel);
+    const leadFilename = post.images[0];
+    const leadPreview = document.createElement("button");
+    leadPreview.type = "button";
+    leadPreview.className = "post-image-preview";
+    leadPreview.classList.toggle("full-image", options.fullImageFilename === leadFilename);
+    leadPreview.dataset.action = "toggle-full-image";
+    leadPreview.dataset.filename = leadFilename;
+    leadPreview.setAttribute(
+      "aria-label",
+      options.fullImageFilename === leadFilename
+        ? `Show profile-grid crop for ${leadFilename}`
+        : `Show full image for ${leadFilename}`
+    );
+    const imageUrl = options.imageUrlForFilename(leadFilename);
+    if (imageUrl) {
+      const image = document.createElement("img");
+      image.src = imageUrl;
+      image.alt = "";
+      image.loading = "lazy";
+      leadPreview.append(image);
+    } else {
+      leadPreview.classList.add("missing-image");
+      leadPreview.textContent = "Image unavailable";
+    }
+    if (post.images.length > 1) {
+      const carouselCount = document.createElement("span");
+      carouselCount.className = "carousel-count";
+      carouselCount.textContent = `${post.images.length} photos`;
+      leadPreview.append(carouselCount);
+    }
+    card.append(leadPreview);
+
+    const imageControls = document.createElement("div");
+    imageControls.className = "post-image-controls";
+    if (post.images.length > 1 && !published) {
+      const carousel = document.createElement("ol");
+      carousel.className = "carousel-list";
+      post.images.forEach((filename, imageIndex) => {
+        carousel.append(
+          renderCarouselItem(filename, group, postIndex, imageIndex, published, options)
+        );
+      });
+      imageControls.append(carousel);
+    }
+    card.append(imageControls);
   }
 
+  const descriptionPreview = document.createElement("p");
+  descriptionPreview.className = "post-description-preview";
+  descriptionPreview.textContent = post.description === "." ? "" : post.description;
+  card.append(descriptionPreview);
+
   if (!placeholder) {
-    const effectiveLimit =
-      post.hashtagLimitOverride ?? options.defaultHashtagLimit;
-    card.append(
-      renderCaptionEditor(group, post, postIndex, published, effectiveLimit)
-    );
+    if (selected) {
+      const effectiveLimit =
+        post.hashtagLimitOverride ?? options.defaultHashtagLimit;
+      card.append(
+        renderCaptionEditor(group, post, postIndex, published, effectiveLimit)
+      );
+    }
   }
 
   const assign = actionButton(
-    options.selectedImageFilename ? "Assign selected image" : "Select an image first",
+    options.selectedImageFilename ? "Add selected photo" : "Select a photo",
     "assign-image"
   );
   assign.disabled = published || options.selectedImageFilename === null;
@@ -778,6 +839,9 @@ function runButtonAction(button: HTMLButtonElement, actions: WorkspaceActions): 
         postIndex,
         Number(button.dataset.imageIndex)
       );
+      break;
+    case "toggle-full-image":
+      actions.onToggleFullImage(button.dataset.filename ?? "");
       break;
     case "delete-group":
       actions.onDeleteGroup(groupId);

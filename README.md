@@ -45,13 +45,22 @@ Copilot should then read the relevant feature specifications before starting eac
 
 ## Use the planner
 
-1. Open the planner and select an existing project JSON file, or start a new project.
-2. Add image files or reconcile against a user-selected image folder when the browser supports it.
+1. Open the planner and choose the project folder. In Chromium, the app reads images locally
+   and autosaves project JSON to that folder after requesting write permission. Select the
+   folder again after a page reload.
+2. The app loads the highest numbered recognized project file, or the canonical
+   `instagram-plan.json` if no numbered file exists. If there is no project file, it starts a
+   new project and creates the canonical file on the first edit.
 3. Organize images into three-post groups, edit descriptions and saved hashtags, and use preview to check the planned grid.
-4. Save to a user-selected JSON file when supported. Otherwise, export the download and copy it into the project folder.
-5. To continue later, open the saved or copied JSON file. Keep a separate backup of important project files.
+4. If direct folder saving is unavailable or fails, export the download and copy it into the
+   project folder.
+5. To continue later, choose the project folder again. Keep a separate backup of important
+   project files.
 
-The planner runs in the browser and does not publish to Instagram. Source images are not modified. Folder access and direct file saving depend on browser support and explicit user selection; the planner does not upload project data to a service.
+The planner runs in the browser and does not publish to Instagram. Source images are only
+read and are never modified or uploaded. Folder access and direct file saving depend on
+browser support and explicit user selection; the planner does not upload project data to a
+service. Embedded XMP subjects are read locally and can be reviewed as dictionary suggestions.
 
 ## Deployment to GitHub Pages
 

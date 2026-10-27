@@ -26,6 +26,16 @@ This document distinguishes decisions supported by the planning conversation fro
 - Filename identifiers are split on commas, underscores, hyphens, and whitespace; the first token is ignored as the image ID; matching is case-insensitive.
 - Default hashtag limit is four, configurable, with per-post override and warning rather than truncation.
 - Unassigned images can have saved descriptions; bulk description assignment does not create posts.
+- In supported browsers, choose a project folder first, request read/write access for its
+  project JSON, and autosave edits there. Keep the folder handle in memory only; the user
+  selects the folder again after reload. Never modify or upload source images.
+- When a selected folder has multiple recognized project files, load the highest numbered
+  `instagram-plan-NNN.json`; if none exists, use `instagram-plan.json`. Ignore unrelated JSON.
+- Prefer readable embedded XMP `dc:subject` identifiers over filename identifiers. Normalize
+  these subjects and suggest unknown identifiers as `identifier` → `#identifier` rules for
+  user review; never rewrite saved hashtags.
+- The planner uses a 3:4 profile-grid crop preview and a 4:5 contained portrait preview for
+  inspecting the full image.
 - Publisher attempts one group per run, has no `failed` status, and leaves unsuccessful/ambiguous groups unpublished.
 - Partial publication may require the user to inspect Instagram before retrying.
 - Scheduling is optional future work, not part of the initial schema.

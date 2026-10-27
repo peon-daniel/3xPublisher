@@ -1,6 +1,9 @@
 import { createEmptyGroup, createEmptyPost } from "../project/defaults";
 import type { GroupEntry, PostEntry, ProjectData } from "../project/types";
-import { generateHashtags } from "../hashtags/generateHashtags";
+import {
+  generateHashtags,
+  generateHashtagsFromIdentifiers
+} from "../hashtags/generateHashtags";
 import { sortUnassignedImages } from "../images/sortUnassignedImages";
 
 export const PLACEHOLDER_GROUP_ID = "__bottom_placeholder__";
@@ -17,7 +20,8 @@ export function assignImageToPost(
   project: ProjectData,
   filename: string,
   groupId: string,
-  postIndex: number
+  postIndex: number,
+  identifierOverride?: string[]
 ): LayoutOperationResult {
   if (!project.images.some((image) => image.filename === filename)) {
     return failure("Image is not in the project catalog.");
@@ -49,7 +53,9 @@ export function assignImageToPost(
     images: [...post.images, filename],
     hashtags:
       post.images.length === 0 && post.hashtags.length === 0
-      ? generateHashtags(filename, project.dictionary)
+      ? identifierOverride
+        ? generateHashtagsFromIdentifiers(identifierOverride, project.dictionary)
+        : generateHashtags(filename, project.dictionary)
         : post.hashtags
   };
   const updatedGroup = withReadiness({ ...group, posts });

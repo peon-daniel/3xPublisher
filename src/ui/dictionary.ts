@@ -3,6 +3,7 @@ import {
   generateHashtags,
   parseFilenameIdentifiers
 } from "../core/hashtags/generateHashtags";
+import type { DictionarySuggestion } from "../core/hashtags/dictionarySuggestions";
 import { saveDictionaryRule } from "../core/hashtags/operations";
 
 export interface DictionaryOptions {
@@ -10,8 +11,11 @@ export interface DictionaryOptions {
   defaultHashtagLimit: number;
   sampleFilename: string;
   message: string;
+  suggestions: DictionarySuggestion[];
   onSaveRule(previousIdentifier: string | null, identifier: string, hashtags: string[]): void;
   onDeleteRule(identifier: string): void;
+  onAcceptSuggestion(identifier: string): void;
+  onDismissSuggestion(identifier: string): void;
   onSetDefaultLimit(limit: number): void;
   onSampleFilenameChange(filename: string): void;
 }
@@ -92,6 +96,40 @@ export function renderDictionary(root: HTMLElement, options: DictionaryOptions):
     );
   }
 
+  const suggestionsHeading = document.createElement("h3");
+  suggestionsHeading.textContent = "Suggested rules";
+  const suggestions = document.createElement("div");
+  suggestions.className = "dictionary-suggestions";
+  if (options.suggestions.length === 0) {
+    const emptySuggestions = document.createElement("p");
+    emptySuggestions.className = "help-text";
+    emptySuggestions.textContent = "No new filename or XMP identifiers found.";
+    suggestions.append(emptySuggestions);
+  } else {
+    for (const suggestion of options.suggestions) {
+      const item = document.createElement("article");
+      item.className = "dictionary-suggestion";
+      const label = document.createElement("p");
+      const source = suggestion.source === "xmp" ? "XMP subject" : "Filename";
+      label.textContent =
+        `${suggestion.identifier} → #${suggestion.identifier} · ${source} · ${suggestion.imageCount} image(s)`;
+      const accept = document.createElement("button");
+      accept.type = "button";
+      accept.textContent = "Add rule";
+      accept.addEventListener("click", () =>
+        options.onAcceptSuggestion(suggestion.identifier)
+      );
+      const dismiss = document.createElement("button");
+      dismiss.type = "button";
+      dismiss.textContent = "Dismiss";
+      dismiss.addEventListener("click", () =>
+        options.onDismissSuggestion(suggestion.identifier)
+      );
+      item.append(label, accept, dismiss);
+      suggestions.append(item);
+    }
+  }
+
   const addHeading = document.createElement("h3");
   addHeading.textContent = "Add a rule";
   const addRule = renderRule(options.dictionary, null, [], options.onSaveRule, options.onDeleteRule);
@@ -107,6 +145,8 @@ export function renderDictionary(root: HTMLElement, options: DictionaryOptions):
     sample,
     rulesHeading,
     rules,
+    suggestionsHeading,
+    suggestions,
     addHeading,
     addRule,
     message

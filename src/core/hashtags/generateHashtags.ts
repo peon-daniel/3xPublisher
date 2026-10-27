@@ -15,6 +15,13 @@ export function generateHashtags(
   filename: string,
   dictionary: HashtagDictionary
 ): string[] {
+  return generateHashtagsFromIdentifiers(parseFilenameIdentifiers(filename), dictionary);
+}
+
+export function generateHashtagsFromIdentifiers(
+  identifiers: string[],
+  dictionary: HashtagDictionary
+): string[] {
   const normalizedDictionary = new Map<string, string[]>();
   for (const [identifier, hashtags] of Object.entries(dictionary)) {
     const key = identifier.trim().toLowerCase();
@@ -26,8 +33,8 @@ export function generateHashtags(
 
   const generated: string[] = [];
   const seen = new Set<string>();
-  for (const identifier of parseFilenameIdentifiers(filename)) {
-    for (const value of normalizedDictionary.get(identifier) ?? []) {
+  for (const identifier of identifiers) {
+    for (const value of normalizedDictionary.get(identifier.trim().toLowerCase()) ?? []) {
       const hashtag = value.trim();
       const key = hashtag.toLowerCase();
       if (hashtag.length === 0 || seen.has(key)) {

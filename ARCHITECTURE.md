@@ -24,7 +24,8 @@ Separate responsibilities into modules/components where useful:
 - **Project I/O adapter:** folder/file selection, reading JSON, export/download, and save capability detection.
 - **Project state/model:** canonical in-memory representation of groups, posts, images, dictionary, settings, and publication state.
 - **Validation and migration:** schema validation, version checks, normalization, and safe handling of unsupported data.
-- **Image catalog:** discover image files and reconcile them with saved references.
+- **Image catalog:** discover image files, read XMP subjects locally, and reconcile them with
+  saved references.
 - **Layout operations:** assign/remove/reorder images, reorder groups/posts, insert/delete groups, hide/unhide unassigned images.
 - **Caption/dictionary logic:** interpret filename identifiers, generate initial hashtags for newly populated posts, manage templates if included, and format previews.
 - **Preview projection:** calculate temporary display order without mutating persistent project order.
@@ -50,7 +51,9 @@ The publisher should not regenerate saved hashtags from filenames or modify imag
 2. Website reads the selected JSON if supplied and scans the accessible folder for image files.
 3. Validation and reconciliation create an in-memory project state.
 4. User actions modify in-memory state and set the dirty/unsaved indicator.
-5. The app saves through a supported file-system permission path if available; otherwise it exports a numbered JSON file and explains where the user must place it.
+5. After explicit folder selection, the app saves through a supported file-system permission
+   path if available; otherwise it exports a numbered JSON file and explains where the user
+   must place it.
 6. Publisher later reads that exported/current JSON, publishes one group, and writes publication state back to JSON.
 
 ## 5. Deployment
