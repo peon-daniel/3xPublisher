@@ -452,10 +452,14 @@ function renderGroup(
   card.dataset.groupId = group.id;
   card.dataset.placeholder = String(placeholder);
   card.dataset.groupIndex = String(index);
-  card.setAttribute("aria-label", placeholder ? "New group placeholder" : `Group ${index + 1}`);
 
   const isPublished = group.publicationStatus === "published";
   const isSelected = options.selection?.kind === "group" && options.selection.groupId === group.id;
+  const groupLabel = placeholder ? "New group placeholder" : `Group ${index + 1}`;
+  card.setAttribute(
+    "aria-label",
+    isSelected ? `Selected ${groupLabel}` : groupLabel
+  );
   if (isSelected) {
     card.classList.add("selected");
   }
@@ -472,6 +476,9 @@ function renderGroup(
       ? "Preview · next published"
       : group.publicationStatus;
   header.append(title, status);
+  if (isSelected) {
+    header.append(selectionIndicator("Selected group"));
+  }
 
   if (!placeholder) {
     const controls = document.createElement("div");
@@ -525,13 +532,19 @@ function renderPost(
   if (selected) {
     card.classList.add("selected");
   }
-  card.setAttribute("aria-label", `Post slot ${postIndex + 1}`);
+  card.setAttribute(
+    "aria-label",
+    selected ? `Selected post slot ${postIndex + 1}` : `Post slot ${postIndex + 1}`
+  );
 
   const heading = document.createElement("div");
   heading.className = "post-heading";
   const title = document.createElement("h4");
   title.textContent = `Post ${postIndex + 1}`;
   heading.append(title);
+  if (selected) {
+    heading.append(selectionIndicator("Selected post"));
+  }
   if (!placeholder) {
     const handle = actionButton("Move post", "drag-post");
     handle.draggable = !published && post.images.length > 0;
@@ -583,6 +596,13 @@ function renderPost(
   assign.dataset.postIndex = String(postIndex);
   card.append(assign);
   return card;
+}
+
+function selectionIndicator(label: string): HTMLElement {
+  const indicator = document.createElement("span");
+  indicator.className = "selection-indicator";
+  indicator.textContent = label;
+  return indicator;
 }
 
 function renderCaptionEditor(

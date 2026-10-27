@@ -221,7 +221,7 @@ imageFolderInput.addEventListener("change", () => {
 document.addEventListener("keydown", (event) => {
   if (
     (event.key !== "ArrowUp" && event.key !== "ArrowDown") ||
-    isEditingElement(event.target) ||
+    shouldIgnoreLayoutShortcut(event.target) ||
     !workspaceSelection
   ) {
     return;
@@ -879,7 +879,7 @@ function imageUrlForFilename(filename: string): string | undefined {
   return matches.length === 1 ? matches[0].url : undefined;
 }
 
-function isEditingElement(target: EventTarget | null): boolean {
+function shouldIgnoreLayoutShortcut(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
   }
@@ -887,7 +887,8 @@ function isEditingElement(target: EventTarget | null): boolean {
     target.isContentEditable ||
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
-    target instanceof HTMLSelectElement
+    target instanceof HTMLSelectElement ||
+    target.closest("button, a, [role='tab'], [role='button']") !== null
   );
 }
 
