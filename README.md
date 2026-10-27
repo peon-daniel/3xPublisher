@@ -43,32 +43,32 @@ The first deliverable is a static website hosted on GitHub Pages. It works with 
 
 Copilot should then read the relevant feature specifications before starting each phase.
 
-## Start in VS Code
+## Use the planner
 
-1. Create or open the GitHub repository in VS Code.
-2. Add these documentation files without overwriting any existing project work.
-3. Ask Copilot to inspect the repository and summarize the current structure and the documentation's implementation sequence. Do not ask it to build everything at once.
-4. Implement Phase 0 and Phase 1 in `DEVELOPMENT_PLAN.md` first. Confirm the proposed schema and technical baseline before substantial implementation.
-5. Run the tests required by each phase and review the diff before accepting changes.
+1. Open the planner and select an existing project JSON file, or start a new project.
+2. Add image files or reconcile against a user-selected image folder when the browser supports it.
+3. Organize images into three-post groups, edit descriptions and saved hashtags, and use preview to check the planned grid.
+4. Save to a user-selected JSON file when supported. Otherwise, export the download and copy it into the project folder.
+5. To continue later, open the saved or copied JSON file. Keep a separate backup of important project files.
 
-## Recommended first Copilot prompt
+The planner runs in the browser and does not publish to Instagram. Source images are not modified. Folder access and direct file saving depend on browser support and explicit user selection; the planner does not upload project data to a service.
 
-> Read `.github/copilot-instructions.md`, `README.md`, `PROJECT_SPEC.md`, `ARCHITECTURE.md`, `DATA_SCHEMA.md`, and `DEVELOPMENT_PLAN.md`. Inspect the existing repository before changing anything. Do not write application code yet. Report: (1) the current repository structure, (2) any conflicts between existing files and the documentation, (3) the proposed implementation stack and why it fits a static GitHub Pages app, (4) any essential decisions that need my approval, and (5) a concrete checklist for Phase 0 only. Do not implement later phases or the publisher.
+## Deployment to GitHub Pages
 
-## Project status
+The repository includes a GitHub Actions Pages workflow at `.github/workflows/pages.yml`. It runs on pushes to `main` and manual dispatch, installs dependencies with `npm ci`, runs `npm test`, builds the static site with `npm run build`, and deploys the `dist` directory.
 
-This package is a handover specification, not application code. The JSON structure and technical choices identified as proposals in `DECISIONS.md` are implementation proposals, not claims that those exact details were previously agreed.
+To publish the site:
 
-## Phase 1 scaffold status
+1. Push the repository to GitHub.
+2. In the repository, open **Settings → Pages** and select **GitHub Actions** as the build and deployment source.
+3. Push to `main`, or run **Deploy static site to GitHub Pages** from the **Actions** tab.
+4. Wait for the workflow to complete, then open the Pages URL shown in the `github-pages` deployment environment.
 
-A minimal static web scaffold and unit-test harness are now in place for Phase 1.
+The built site is static; user-selected project JSON and images are not part of the deployment artifact. Do not commit personal images, project JSON, or credentials.
 
-- Entry point: `index.html` and `src/main.ts`
-- Styling baseline: `src/styles.css`
-- Unit-testable module example: `src/core/smoke.ts`
-- Test example: `src/core/smoke.test.ts`
-- Build/test tooling: `package.json`, `tsconfig.json`, `vite.config.ts`
-- Pages workflow: `.github/workflows/pages.yml`
+## Implementation status
+
+The static planner currently supports project import/export, image catalog reconciliation, group and carousel organization, dictionary-based initial hashtag generation, caption editing, preview, and save-state feedback. The project is in the release/deployment phase; Instagram publishing and scheduling remain out of scope.
 
 ## Local setup commands
 
