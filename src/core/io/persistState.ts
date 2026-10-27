@@ -1,6 +1,7 @@
 export type PersistenceStatus =
   | "unsaved"
   | "saved-to-selected-file"
+  | "loaded-from-selected-file"
   | "exported-download-needs-copy"
   | "save-failed";
 
@@ -37,6 +38,6 @@ export function transitionPersistenceState(
     case "persistence-failed":
       return { status: "save-failed", dirty: true };
     case "loaded-from-selected-file":
-      return { status: "saved-to-selected-file", dirty: false };
+      return { status: "loaded-from-selected-file", dirty: false };
   }
 }

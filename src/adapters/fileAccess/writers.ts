@@ -12,6 +12,23 @@ export type WriteFileResult =
   | { ok: true }
   | { ok: false; error: string };
 
+export interface SaveFilePickerOptions {
+  suggestedName: string;
+  types: Array<{
+    description: string;
+    accept: Record<string, string[]>;
+  }>;
+}
+
+export type SaveFilePicker = (
+  options: SaveFilePickerOptions
+) => Promise<WritableFileHandle>;
+
+export type SaveWithPickerResult =
+  | { ok: true }
+  | { ok: false; error: string }
+  | { ok: false; cancelled: true };
+
 export interface DownloadAnchor {
   href: string;
   download: string;
@@ -55,6 +72,43 @@ export async function writeSelectedFile(
       error: `Could not save the selected file: ${describeError(error)}.${cleanupMessage}`
     };
   }
+}
+
+export async function saveWithFilePicker(
+  contents: string,
+  suggestedName: string,
+  picker: SaveFilePicker | undefined = getBrowserSaveFilePicker()
+): Promise<SaveWithPickerResult> {
+  if (!picker) {
+    return {
+      ok: false,
+      error: "Direct file saving is not supported by this browser."
+    };
+  }
+
+  let handle: WritableFileHandle;
+  try {
+    handle = await picker({
+      suggestedName,
+      types: [
+        {
+          description: "JSON project file",
+          accept: { "application/json": [".json"] }
+        }
+      ]
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      return { ok: false, cancelled: true };
+    }
+
+    return {
+      ok: false,
+      error: `Could not open the save dialog: ${describeError(error)}`
+    };
+  }
+
+  return writeSelectedFile(handle, contents);
 }
 
 export function downloadTextFile(
@@ -119,4 +173,17 @@ export function downloadTextFile(
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function getBrowserSaveFilePicker(): SaveFilePicker | undefined {
+  const candidate = Reflect.get(globalThis, "showSaveFilePicker");
+  return isSaveFilePicker(candidate) ? candidate.bind(globalThis) : undefined;
+}
+
+function isSaveFilePicker(value: unknown): value is SaveFilePicker {
+  return typeof value === "function";
+}
+
+function isAbortError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && Reflect.get(error, "name") === "AbortError";
 }

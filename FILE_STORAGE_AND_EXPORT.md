@@ -18,6 +18,13 @@ download support independently. Reading an explicitly selected `File` does not r
 File System Access API. Direct writes use a user-selected writable file handle and are only
 reported as saved after both the write and close complete successfully.
 
+The Phase 2 shell imports only a user-selected JSON file and activates it only after parsing
+and validation succeed. On browsers with the Save File Picker API, saving asks the user to
+choose a destination. Otherwise, export starts a JSON download with an editable numbered
+filename. The app does not enumerate the project folder, so it cannot guarantee that the
+suggested export sequence is unused; the user must choose a non-conflicting name.
+Loading a project reports that it was loaded; it is not reported as a new save operation.
+
 Do not claim autosave succeeded unless the browser reports successful completion of the write. The UI must distinguish:
 - changes not yet saved/exported,
 - successfully saved to the selected file,

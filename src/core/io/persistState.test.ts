@@ -10,11 +10,11 @@ describe("persistence state", () => {
     });
   });
 
-  it("marks a loaded project clean and saved to its selected file", () => {
+  it("marks a loaded project clean without claiming a save occurred", () => {
     expect(
       transitionPersistenceState(createPersistenceState(), "loaded-from-selected-file")
     ).toEqual({
-      status: "saved-to-selected-file",
+      status: "loaded-from-selected-file",
       dirty: false
     });
   });

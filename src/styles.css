@@ -26,7 +26,87 @@ h1 {
   font-size: 1.75rem;
 }
 
+h2 {
+  margin: 0 0 20px;
+  font-size: 1.2rem;
+}
+
 p {
-  margin: 0;
   line-height: 1.5;
+}
+
+.project-io {
+  display: grid;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.project-io label {
+  font-weight: 600;
+}
+
+.project-io input[type="text"] {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #9ca3af;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.project-io input[type="file"] {
+  max-width: 100%;
+  font: inherit;
+}
+
+.project-io button {
+  justify-self: start;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #1f4f82;
+  font: inherit;
+  cursor: pointer;
+}
+
+.project-io button:focus-visible,
+.project-io input:focus-visible {
+  outline: 3px solid #f59e0b;
+  outline-offset: 2px;
+}
+
+.help-text,
+.status,
+.summary {
+  margin: 0;
+}
+
+.help-text {
+  color: #4b5563;
+  font-size: 0.9rem;
+}
+
+.status {
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #ecfdf5;
+}
+
+.status[data-dirty="true"] {
+  color: #991b1b;
+  background: #fef2f2;
+}
+
+.summary {
+  color: #4b5563;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 600px) {
+  .shell {
+    margin: 16px;
+    padding: 20px;
+  }
 }

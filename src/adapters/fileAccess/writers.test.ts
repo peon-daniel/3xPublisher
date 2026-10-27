@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { downloadTextFile, writeSelectedFile } from "./writers";
+import { downloadTextFile, saveWithFilePicker, writeSelectedFile } from "./writers";
 
 describe("writeSelectedFile", () => {
   it("reports success only after writing and closing", async () => {
@@ -48,6 +48,55 @@ describe("writeSelectedFile", () => {
     expect(result).toEqual({
       ok: false,
       error: "Could not save the selected file: write failed. Could not abort the incomplete write: abort failed"
+    });
+  });
+});
+
+describe("saveWithFilePicker", () => {
+  it("writes the selected file and reports success", async () => {
+    const write = vi.fn().mockResolvedValue(undefined);
+    const close = vi.fn().mockResolvedValue(undefined);
+    const picker = vi.fn().mockResolvedValue({
+      createWritable: vi.fn().mockResolvedValue({ write, close })
+    });
+
+    await expect(saveWithFilePicker("{}", "instagram-plan.json", picker)).resolves.toEqual({
+      ok: true
+    });
+    expect(picker).toHaveBeenCalledWith({
+      suggestedName: "instagram-plan.json",
+      types: [
+        {
+          description: "JSON project file",
+          accept: { "application/json": [".json"] }
+        }
+      ]
+    });
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("distinguishes a user-cancelled save dialog", async () => {
+    const error = new Error("cancelled");
+    error.name = "AbortError";
+
+    await expect(
+      saveWithFilePicker("{}", "instagram-plan.json", vi.fn().mockRejectedValue(error))
+    ).resolves.toEqual({
+      ok: false,
+      cancelled: true
+    });
+  });
+
+  it("reports picker errors", async () => {
+    await expect(
+      saveWithFilePicker(
+        "{}",
+        "instagram-plan.json",
+        vi.fn().mockRejectedValue(new Error("permission denied"))
+      )
+    ).resolves.toEqual({
+      ok: false,
+      error: "Could not open the save dialog: permission denied"
     });
   });
 });
