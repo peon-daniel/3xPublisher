@@ -49,7 +49,17 @@ Example filename:
 - Duplicate generated hashtags within a post are removed.
 - No category hierarchy is required.
 
-The exact filename tokenization rules for separators, whitespace, extensions, and case normalization are not fully specified. Implement parsing as an isolated, tested function and document the chosen deterministic rules; do not reinterpret the image ID as a hashtag.
+Filename identifiers are parsed with the deterministic rules below; the image ID is not treated as a hashtag.
+
+### Phase 5 parsing rules
+
+- Remove the final filename extension before tokenization.
+- Split the remaining stem on commas, underscores, hyphens, or whitespace.
+- Ignore the first non-empty token as the image ID; all later tokens are candidate identifiers.
+- Match identifiers case-insensitively.
+- Walk identifiers in filename order and hashtags in dictionary order.
+- Trim dictionary hashtag values, skip empty values, and remove duplicates case-insensitively while preserving the first value's spelling and position.
+- For example, `P8260673_d3, fp100, halfframe, rodinal.jpg` parses to `d3`, `fp100`, `halfframe`, and `rodinal`.
 
 ## Hidden and unassigned ordering
 
@@ -57,4 +67,5 @@ The exact filename tokenization rules for separators, whitespace, extensions, an
 - Hidden images are not deleted from disk; a bottom-of-pane control reveals them.
 - Unassigned images are alphabetically sorted by default.
 - Users may reorder one or more selected images via drag/drop; preserve that custom order in JSON.
+- Up/Down controls provide an accessible alternative. Assigning an image clears its unassigned order; if it is later removed, it returns to the default alphabetical position until reordered again.
 - Per-image descriptions may be stored while images are unassigned. Applying a description does not automatically create a post.

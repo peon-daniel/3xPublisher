@@ -63,7 +63,7 @@ This example illustrates the proposed shape; timestamps, IDs, and sample content
 - `schemaVersion`: integer. Reject or open read-only with a clear message if unsupported; never silently discard unknown-version data.
 - `project`: project metadata.
 - `settings.defaultHashtagLimit`: non-negative integer; initial default is `4`.
-- `dictionary`: map from normalized identifier to an array of hashtags. A key can map to multiple hashtags. Different keys may map to the same hashtag.
+- `dictionary`: map from normalized, lowercase identifier to an array of hashtags. Filename identifier matching is case-insensitive. A key can map to multiple hashtags. Different keys may map to the same hashtag.
 - `images`: image catalog and unassigned-image metadata. Filenames are the portable references; never store absolute paths as the only reference.
 - `groups`: persistent group order. The empty UI placeholder is not stored as a committed group.
 

@@ -7,7 +7,20 @@ import { importProject } from "./core/io/importProject";
 import { createPersistenceState, transitionPersistenceState } from "./core/io/persistState";
 import { serializeProject } from "./core/io/serializeProject";
 import { createEmptyProject } from "./core/project/defaults";
+import {
+  deleteDictionaryRule,
+  saveDictionaryRule,
+  setDefaultHashtagLimit,
+  updatePostContent,
+  updatePostHashtagLimit,
+  updateUnassignedImageDescriptions
+} from "./core/hashtags/operations";
+import type { ProjectContentResult } from "./core/hashtags/operations";
+import {
+  findNextReadyGroupId
+} from "./core/preview/groupPreview";
 import { discoverSelectedImages, isSupportedImageFile } from "./core/images/discoverImages";
+import { sortUnassignedImages } from "./core/images/sortUnassignedImages";
 import {
   applyImagePathResolutions,
   reconcileProjectImages
@@ -22,6 +35,8 @@ import {
   moveGroup,
   movePostToEmptySlot,
   movePostWithinGroup,
+  moveUnassignedImage,
+  moveUnassignedImageTo,
   PLACEHOLDER_GROUP_ID,
   removeImageFromPost,
   setImageHidden
@@ -29,6 +44,7 @@ import {
 import type { LayoutOperationResult } from "./core/layout/operations";
 import { bindWorkspaceEvents, renderWorkspace } from "./ui/workspace";
 import type { WorkspaceActions, WorkspaceSelection } from "./ui/workspace";
+import { renderDictionary } from "./ui/dictionary";
 import type { PersistenceEvent, PersistenceState } from "./core/io/persistState";
 import type { ProjectData } from "./core/project/types";
 
@@ -56,7 +72,12 @@ app.innerHTML = `
       <p id="project-status" class="status" role="status" aria-live="polite"></p>
       <p id="project-summary" class="summary"></p>
     </section>
-    <section class="image-catalog" aria-labelledby="image-catalog-title">
+    <nav class="tabs" role="tablist" aria-label="Project views">
+      <button id="planner-tab" type="button" role="tab" aria-selected="true" aria-controls="planner-panel">Planner</button>
+      <button id="dictionary-tab" type="button" role="tab" aria-selected="false" aria-controls="dictionary-panel">Dictionary</button>
+    </nav>
+    <section id="planner-panel" class="tab-panel" role="tabpanel" aria-labelledby="planner-tab">
+      <section class="image-catalog" aria-labelledby="image-catalog-title">
       <h2 id="image-catalog-title">Image catalog</h2>
       <label for="image-files">Add selected image files</label>
       <input id="image-files" type="file" accept="image/*" multiple />
@@ -67,8 +88,12 @@ app.innerHTML = `
       <p id="folder-help" class="help-text"></p>
       <p id="image-summary" class="summary"></p>
       <ul id="image-report" class="image-report" aria-live="polite"></ul>
+      </section>
+      <div id="workspace-root"></div>
     </section>
-    <div id="workspace-root"></div>
+    <section id="dictionary-panel" class="tab-panel" role="tabpanel" aria-labelledby="dictionary-tab" hidden>
+      <div id="dictionary-root"></div>
+    </section>
   </main>
 `;
 
@@ -85,6 +110,11 @@ const folderHelp = requireElement<HTMLParagraphElement>("#folder-help");
 const imageSummary = requireElement<HTMLParagraphElement>("#image-summary");
 const imageReport = requireElement<HTMLUListElement>("#image-report");
 const workspaceRoot = requireElement<HTMLDivElement>("#workspace-root");
+const dictionaryRoot = requireElement<HTMLDivElement>("#dictionary-root");
+const plannerTab = requireElement<HTMLButtonElement>("#planner-tab");
+const dictionaryTab = requireElement<HTMLButtonElement>("#dictionary-tab");
+const plannerPanel = requireElement<HTMLElement>("#planner-panel");
+const dictionaryPanel = requireElement<HTMLElement>("#dictionary-panel");
 
 let project: ProjectData = createEmptyProject();
 let persistence: PersistenceState = createPersistenceState();
@@ -99,6 +129,12 @@ const previewSources = new Map<string, { filename: string; url: string }>();
 let showHidden = false;
 let selectedImageFilename: string | null = null;
 let workspaceSelection: WorkspaceSelection = null;
+let selectedDescriptionFilenames = new Set<string>();
+let bulkDescription = "";
+let dictionarySampleFilename = "P8260673_d3, fp100, halfframe, rodinal.jpg";
+let dictionaryMessage = "";
+let activeTab: "planner" | "dictionary" = "planner";
+let previewGroupId: string | null = null;
 
 folderPicker.hidden = !capabilities.directoryInput;
 folderHelp.textContent = capabilities.directoryInput
@@ -106,6 +142,8 @@ folderHelp.textContent = capabilities.directoryInput
   : "Folder scanning is unavailable in this browser. Add image files manually; files not selected will not be marked missing.";
 exportFilename.value = nextExportFilename();
 bindWorkspaceEvents(workspaceRoot, createWorkspaceActions());
+plannerTab.addEventListener("click", () => setActiveTab("planner"));
+dictionaryTab.addEventListener("click", () => setActiveTab("dictionary"));
 render();
 
 fileInput.addEventListener("change", async () => {
@@ -138,7 +176,11 @@ fileInput.addEventListener("change", async () => {
   lastAmbiguities = [];
   resolvedImagePaths.clear();
   selectedImageFilename = null;
+  selectedDescriptionFilenames.clear();
+  bulkDescription = "";
   workspaceSelection = null;
+  previewGroupId = null;
+  dictionaryMessage = "";
   showHidden = false;
   lastMessage =
     result.warnings.length > 0
@@ -156,7 +198,11 @@ newProjectButton.addEventListener("click", () => {
   lastAmbiguities = [];
   resolvedImagePaths.clear();
   selectedImageFilename = null;
+  selectedDescriptionFilenames.clear();
+  bulkDescription = "";
   workspaceSelection = null;
+  previewGroupId = null;
+  dictionaryMessage = "";
   showHidden = false;
   lastMessage = "New project created. Changes have not been saved.";
   render();
@@ -420,8 +466,72 @@ function render(): void {
     showHidden,
     hiddenCount,
     selection: workspaceSelection,
+    selectedDescriptionFilenames: Array.from(selectedDescriptionFilenames),
+    bulkDescription,
+    defaultHashtagLimit: project.settings.defaultHashtagLimit,
+    previewGroupId,
+    nextReadyGroupId: findNextReadyGroupId(project),
     imageUrlForFilename
   });
+  renderDictionary(dictionaryRoot, {
+    dictionary: project.dictionary,
+    defaultHashtagLimit: project.settings.defaultHashtagLimit,
+    sampleFilename: dictionarySampleFilename,
+    message: dictionaryMessage,
+    onSaveRule(previousIdentifier, identifier, hashtags) {
+      const result = saveDictionaryRule(
+        project.dictionary,
+        previousIdentifier,
+        identifier,
+        hashtags
+      );
+      if (!result.ok) {
+        dictionaryMessage = result.error;
+        render();
+        return;
+      }
+      project = { ...project, dictionary: result.dictionary };
+      dictionaryMessage = "Dictionary rule saved.";
+      applyContentChange("Dictionary rule saved; existing post hashtags were not changed.");
+    },
+    onDeleteRule(identifier) {
+      if (!window.confirm(`Delete the "${identifier}" rule? Saved post hashtags will not change.`)) {
+        return;
+      }
+      const result = deleteDictionaryRule(project.dictionary, identifier);
+      if (!result.ok) {
+        dictionaryMessage = result.error;
+        render();
+        return;
+      }
+      project = { ...project, dictionary: result.dictionary };
+      dictionaryMessage = "Dictionary rule deleted.";
+      applyContentChange("Dictionary rule deleted; saved post hashtags were not changed.");
+    },
+    onSetDefaultLimit(limit) {
+      applyContentResult(
+        setDefaultHashtagLimit(project, limit),
+        "Default hashtag limit updated."
+      );
+    },
+    onSampleFilenameChange(filename) {
+      dictionarySampleFilename = filename;
+    }
+  });
+  setActiveTab(activeTab);
+}
+
+function getVisibleUnassignedFilenames(): string[] {
+  const assignedFilenames = new Set(
+    project.groups.flatMap((group) => group.posts.flatMap((post) => post.images))
+  );
+  return sortUnassignedImages(
+    project.images.filter(
+      (image) =>
+        !assignedFilenames.has(image.filename) &&
+        (showHidden || !image.hidden)
+    )
+  ).map((image) => image.filename);
 }
 
 function createWorkspaceActions(): WorkspaceActions {
@@ -440,6 +550,87 @@ function createWorkspaceActions(): WorkspaceActions {
     },
     onToggleHidden(filename, hidden) {
       applyLayoutResult(setImageHidden(project, filename, hidden));
+    },
+    onToggleDescriptionImage(filename, selected) {
+      const image = project.images.find((candidate) => candidate.filename === filename);
+      if (selected) {
+        if (image && selectedDescriptionFilenames.size === 0) {
+          bulkDescription = image.description;
+        } else if (
+          image &&
+          image.description !== bulkDescription
+        ) {
+          bulkDescription = "";
+        }
+        selectedDescriptionFilenames.add(filename);
+      } else {
+        selectedDescriptionFilenames.delete(filename);
+        if (selectedDescriptionFilenames.size === 0) {
+          bulkDescription = "";
+        }
+      }
+      render();
+    },
+    onMoveUnassignedImage(filename, direction) {
+      applyLayoutResult(
+        moveUnassignedImage(
+          project,
+          filename,
+          direction,
+          getVisibleUnassignedFilenames()
+        )
+      );
+    },
+    onMoveUnassignedImageTo(sourceFilename, targetFilename, insertAfter) {
+      applyLayoutResult(
+        moveUnassignedImageTo(
+          project,
+          sourceFilename,
+          targetFilename,
+          insertAfter,
+          getVisibleUnassignedFilenames()
+        )
+      );
+    },
+    onBulkDescriptionChange(description) {
+      bulkDescription = description;
+    },
+    onApplyBulkDescription() {
+      const result = updateUnassignedImageDescriptions(
+        project,
+        Array.from(selectedDescriptionFilenames),
+        bulkDescription
+      );
+      if (result.ok) {
+        selectedDescriptionFilenames.clear();
+      }
+      applyContentResult(result, "Description saved for selected unassigned image(s).");
+    },
+    onUpdatePost(groupId, postIndex, description, hashtags) {
+      applyContentResult(
+        updatePostContent(project, groupId, postIndex, description, hashtags),
+        "Caption saved."
+      );
+    },
+    onUpdatePostLimit(groupId, postIndex, limit) {
+      applyContentResult(
+        updatePostHashtagLimit(project, groupId, postIndex, limit),
+        "Post hashtag limit updated."
+      );
+    },
+    onStartPreview(groupId) {
+      if (!project.groups.some((group) => group.id === groupId && group.publicationStatus === "ready")) {
+        setOperationError("There is no ready unpublished group to preview.");
+        return;
+      }
+      previewGroupId = groupId;
+      lastMessage = "Previewing the next ready group. Project order and saved JSON are unchanged.";
+      render();
+    },
+    onCancelPreview() {
+      previewGroupId = null;
+      lastMessage = "Preview cancelled. Project order and saved JSON are unchanged.";
+      render();
     },
     onMoveGroupToIndex(groupId, insertionIndex) {
       const sourceIndex = project.groups.findIndex((group) => group.id === groupId);
@@ -578,8 +769,60 @@ function applyLayoutResult(
   project = result.project;
   persistence = transitionPersistenceState(persistence, "project-changed");
   selectedImageFilename = null;
+  const assignedFilenames = new Set(
+    project.groups.flatMap((group) => group.posts.flatMap((post) => post.images))
+  );
+  selectedDescriptionFilenames = new Set(
+    Array.from(selectedDescriptionFilenames).filter(
+      (filename) =>
+        project.images.some((image) => image.filename === filename) &&
+        !assignedFilenames.has(filename)
+    )
+  );
+  if (selectedDescriptionFilenames.size === 0) {
+    bulkDescription = "";
+  }
+  let previewEnded = false;
+  if (
+    previewGroupId !== null &&
+    !project.groups.some(
+      (group) => group.id === previewGroupId && group.publicationStatus === "ready"
+    )
+  ) {
+    previewGroupId = null;
+    previewEnded = true;
+  }
+  lastMessage = previewEnded
+    ? `${successMessage} Preview ended because the group is no longer ready.`
+    : successMessage;
+  render();
+}
+
+function applyContentResult(
+  result: ProjectContentResult,
+  successMessage: string
+): void {
+  if (!result.ok) {
+    setOperationError(result.error);
+    return;
+  }
+  project = result.project;
+  applyContentChange(successMessage);
+}
+
+function applyContentChange(successMessage: string): void {
+  persistence = transitionPersistenceState(persistence, "project-changed");
   lastMessage = successMessage;
   render();
+}
+
+function setActiveTab(tab: "planner" | "dictionary"): void {
+  activeTab = tab;
+  const isPlanner = tab === "planner";
+  plannerTab.setAttribute("aria-selected", String(isPlanner));
+  dictionaryTab.setAttribute("aria-selected", String(!isPlanner));
+  plannerPanel.hidden = !isPlanner;
+  dictionaryPanel.hidden = isPlanner;
 }
 
 function setOperationError(message: string): void {

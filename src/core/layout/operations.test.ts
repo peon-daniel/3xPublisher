@@ -10,6 +10,7 @@ import {
   moveGroup,
   movePostToEmptySlot,
   movePostWithinGroup,
+  moveUnassignedImage,
   PLACEHOLDER_GROUP_ID,
   removeImageFromPost,
   setImageHidden
@@ -53,8 +54,11 @@ function group(
 
 describe("layout operations", () => {
   it("commits the UI placeholder only when an image is assigned", () => {
+    const project = makeProject();
+    project.images[0].unassignedOrder = 2;
+    project.dictionary = { d3: ["#film"], rodinal: ["#developer"] };
     const result = assignImageToPost(
-      makeProject(),
+      project,
       "one.jpg",
       PLACEHOLDER_GROUP_ID,
       0
@@ -66,6 +70,23 @@ describe("layout operations", () => {
       expect(result.project.groups[0].posts).toHaveLength(3);
       expect(result.project.groups[0].posts[0].images).toEqual(["one.jpg"]);
       expect(result.project.groups[0].publicationStatus).toBe("not ready");
+      expect(result.project.groups[0].posts[0].hashtags).toEqual([]);
+      expect(result.project.images[0].unassignedOrder).toBeNull();
+    }
+  });
+
+  it("generates hashtags from the initial image only", () => {
+    const project = makeProject();
+    project.images[0].filename = "P8260673_d3.jpg";
+    project.dictionary = { d3: ["#film"] };
+    project.groups = [group("group")];
+    const assigned = assignImageToPost(project, "P8260673_d3.jpg", "group", 0);
+
+    expect(assigned.ok).toBe(true);
+    if (assigned.ok) {
+      expect(assigned.project.groups[0].posts[0].hashtags).toEqual(["#film"]);
+      assigned.project.dictionary = { d3: ["#new-rule"] };
+      expect(assigned.project.groups[0].posts[0].hashtags).toEqual(["#film"]);
     }
   });
 
@@ -147,9 +168,47 @@ describe("layout operations", () => {
     }
   });
 
-  it("reorders carousel images without changing saved captions", () => {
+  it("persists custom unassigned order without changing assigned images", () => {
     const project = makeProject([
-      group("g1", [post("p1", ["one.jpg", "two.jpg"], "caption"), post("p2"), post("p3")])
+      group("g1", [post("p1", ["one.jpg"]), post("p2"), post("p3")])
+    ]);
+    const result = moveUnassignedImage(project, "two.jpg", -1);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(
+        result.project.images
+          .filter((image) => image.unassignedOrder !== null)
+          .sort((left, right) => (left.unassignedOrder ?? 0) - (right.unassignedOrder ?? 0))
+          .map((image) => image.filename)
+      ).toEqual(["two.jpg", "three.jpg"]);
+      expect(result.project.images.find((image) => image.filename === "one.jpg")?.unassignedOrder)
+        .toBeNull();
+    }
+    expect(moveUnassignedImage(project, "three.jpg", -1)).toMatchObject({ ok: false });
+  });
+
+  it("keeps hidden image positions stable when visible photos are reordered", () => {
+    const project = makeProject();
+    project.images[0].hidden = true;
+    const result = moveUnassignedImage(project, "two.jpg", -1, ["three.jpg", "two.jpg"]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(
+        result.project.images
+          .slice()
+          .sort((left, right) => (left.unassignedOrder ?? 0) - (right.unassignedOrder ?? 0))
+          .map((image) => image.filename)
+      ).toEqual(["one.jpg", "two.jpg", "three.jpg"]);
+    }
+  });
+
+  it("reorders carousel images without changing saved captions", () => {
+    const firstPost = post("p1", ["one.jpg", "two.jpg"], "caption");
+    firstPost.hashtags = ["#saved"];
+    const project = makeProject([
+      group("g1", [firstPost, post("p2"), post("p3")])
     ]);
     const result = moveCarouselImage(project, "g1", 0, 0, 1);
 
@@ -157,7 +216,8 @@ describe("layout operations", () => {
     if (result.ok) {
       expect(result.project.groups[0].posts[0]).toMatchObject({
         images: ["two.jpg", "one.jpg"],
-        description: "caption"
+        description: "caption",
+        hashtags: ["#saved"]
       });
     }
   });

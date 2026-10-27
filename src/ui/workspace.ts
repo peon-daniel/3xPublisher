@@ -1,6 +1,9 @@
 import { createEmptyGroup } from "../core/project/defaults";
 import type { GroupEntry, ImageEntry, PostEntry, ProjectData } from "../core/project/types";
 import { PLACEHOLDER_GROUP_ID } from "../core/layout/operations";
+import { formatCaption } from "../core/hashtags/caption";
+import { projectGroupsForPreview } from "../core/preview/groupPreview";
+import { sortUnassignedImages } from "../core/images/sortUnassignedImages";
 
 const IMAGE_TRANSFER_TYPE = "application/x-3xpublisher-image";
 const GROUP_TRANSFER_TYPE = "application/x-3xpublisher-group";
@@ -18,6 +21,11 @@ export interface WorkspaceOptions {
   showHidden: boolean;
   hiddenCount: number;
   selection: WorkspaceSelection;
+  selectedDescriptionFilenames: string[];
+  bulkDescription: string;
+  defaultHashtagLimit: number;
+  previewGroupId: string | null;
+  nextReadyGroupId: string | null;
   imageUrlForFilename(filename: string): string | undefined;
 }
 
@@ -26,6 +34,24 @@ export interface WorkspaceActions {
   onSelectionChange(selection: WorkspaceSelection): void;
   onToggleShowHidden(): void;
   onToggleHidden(filename: string, hidden: boolean): void;
+  onToggleDescriptionImage(filename: string, selected: boolean): void;
+  onMoveUnassignedImage(filename: string, direction: -1 | 1): void;
+  onMoveUnassignedImageTo(
+    sourceFilename: string,
+    targetFilename: string,
+    insertAfter: boolean
+  ): void;
+  onBulkDescriptionChange(description: string): void;
+  onApplyBulkDescription(): void;
+  onUpdatePost(
+    groupId: string,
+    postIndex: number,
+    description: string,
+    hashtags: string[]
+  ): void;
+  onUpdatePostLimit(groupId: string, postIndex: number, limit: number | null): void;
+  onStartPreview(groupId: string): void;
+  onCancelPreview(): void;
   onMoveGroupToIndex(groupId: string, index: number): void;
   onMovePostToSlot(
     sourceGroupId: string,
@@ -92,6 +118,36 @@ export function bindWorkspaceEvents(
     }
   });
 
+  root.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+
+    if (target.dataset.action === "select-description-image") {
+      actions.onToggleDescriptionImage(
+        target.dataset.filename ?? "",
+        target.checked
+      );
+    } else if (target.dataset.action === "set-post-limit") {
+      actions.onUpdatePostLimit(
+        target.dataset.groupId ?? "",
+        Number(target.dataset.postIndex),
+        target.value.length === 0 ? null : Number(target.value)
+      );
+    }
+  });
+
+  root.addEventListener("input", (event) => {
+    const target = event.target;
+    if (
+      target instanceof HTMLTextAreaElement &&
+      target.dataset.bulkDescription !== undefined
+    ) {
+      actions.onBulkDescriptionChange(target.value);
+    }
+  });
+
   root.addEventListener("dragstart", (event) => {
     const target = event.target;
     if (!(target instanceof Element) || !event.dataTransfer) {
@@ -152,6 +208,22 @@ export function bindWorkspaceEvents(
     if (groupCard && groupCard.dataset.placeholder !== "true") {
       event.preventDefault();
       handleGroupDrop(event, event.dataTransfer, groupCard, actions);
+      return;
+    }
+
+    const targetImage = target.closest<HTMLElement>("[data-image-filename]");
+    if (targetImage) {
+      const sourceFilename = event.dataTransfer.getData(IMAGE_TRANSFER_TYPE);
+      const targetFilename = targetImage.dataset.imageFilename ?? "";
+      if (sourceFilename && sourceFilename !== targetFilename) {
+        event.preventDefault();
+        const bounds = targetImage.getBoundingClientRect();
+        actions.onMoveUnassignedImageTo(
+          sourceFilename,
+          targetFilename,
+          event.clientY > bounds.top + bounds.height / 2
+        );
+      }
     }
   });
 }
@@ -176,13 +248,13 @@ export function renderWorkspace(root: HTMLElement, options: WorkspaceOptions): v
   const assignedFilenames = new Set(
     options.project.groups.flatMap((group) => group.posts.flatMap((post) => post.images))
   );
-  const unassignedImages = options.project.images
-    .filter(
+  const unassignedImages = sortUnassignedImages(
+    options.project.images.filter(
       (image) =>
         !assignedFilenames.has(image.filename) &&
         (options.showHidden || !image.hidden)
     )
-    .sort(compareUnassignedImages);
+  );
 
   if (unassignedImages.length === 0) {
     const empty = document.createElement("li");
@@ -193,10 +265,31 @@ export function renderWorkspace(root: HTMLElement, options: WorkspaceOptions): v
     unassignedList.append(empty);
   }
 
-  for (const image of unassignedImages) {
-    unassignedList.append(renderUnassignedImage(image, options));
-  }
+  unassignedImages.forEach((image, index) => {
+    unassignedList.append(
+      renderUnassignedImage(
+        image,
+        index,
+        unassignedImages.length,
+        options
+      )
+    );
+  });
   unassignedPane.append(unassignedList);
+  const bulkDescriptionLabel = document.createElement("label");
+  bulkDescriptionLabel.textContent = "Description for selected photo(s)";
+  const bulkDescription = document.createElement("textarea");
+  bulkDescription.rows = 3;
+  bulkDescription.value = options.bulkDescription;
+  bulkDescription.dataset.bulkDescription = "true";
+  bulkDescription.setAttribute("aria-label", "Description for selected photo(s)");
+  const applyDescription = actionButton(
+    "Apply description to selected",
+    "apply-bulk-description"
+  );
+  applyDescription.disabled = options.selectedDescriptionFilenames.length === 0;
+  unassignedPane.append(bulkDescriptionLabel, bulkDescription, applyDescription);
+
   if (options.hiddenCount > 0) {
     const showHiddenButton = actionButton(
       options.showHidden
@@ -216,18 +309,47 @@ export function renderWorkspace(root: HTMLElement, options: WorkspaceOptions): v
   const groupsTitle = document.createElement("h2");
   groupsTitle.id = "groups-title";
   groupsTitle.textContent = "3x Post Groups";
+  const previewButton = actionButton(
+    options.previewGroupId === null
+      ? "Preview next ready group"
+      : "Cancel preview",
+    options.previewGroupId === null ? "start-preview" : "cancel-preview"
+  );
+  previewButton.disabled =
+    options.previewGroupId === null && options.nextReadyGroupId === null;
+  previewButton.dataset.groupId = options.nextReadyGroupId ?? "";
+  groupsHeading.append(groupsTitle, previewButton);
   const addGroup = actionButton("Add group", "add-group");
-  groupsHeading.append(groupsTitle, addGroup);
+  groupsHeading.append(addGroup);
   groupsPane.append(groupsHeading);
 
   const groupList = document.createElement("div");
   groupList.className = "group-list";
   const placeholder = createEmptyGroup(PLACEHOLDER_GROUP_ID);
-  const displayGroups = [...options.project.groups, placeholder];
+  const displayGroups = [
+    ...projectGroupsForPreview(options.project, options.previewGroupId),
+    placeholder
+  ];
+
+  if (options.previewGroupId !== null) {
+    const notice = document.createElement("p");
+    notice.className = "preview-notice";
+    notice.textContent =
+      "Preview only: this visual order does not change the project or its saved JSON.";
+    groupsPane.append(notice);
+  }
 
   displayGroups.forEach((group, index) => {
     const isPlaceholder = group.id === PLACEHOLDER_GROUP_ID;
-    groupList.append(renderGroup(group, index, isPlaceholder, options));
+    groupList.append(
+      renderGroup(
+        group,
+        index,
+        isPlaceholder,
+        group.id === options.previewGroupId,
+        options
+      )
+    );
     if (!isPlaceholder && group.publicationStatus !== "published") {
       const insert = actionButton("＋ Insert group here", "insert-group");
       insert.dataset.insertIndex = String(index + 1);
@@ -242,6 +364,8 @@ export function renderWorkspace(root: HTMLElement, options: WorkspaceOptions): v
 
 function renderUnassignedImage(
   image: ImageEntry,
+  index: number,
+  count: number,
   options: WorkspaceOptions
 ): HTMLLIElement {
   const item = document.createElement("li");
@@ -273,11 +397,39 @@ function renderUnassignedImage(
   select.append(filename);
   item.append(select);
 
+  const controls = document.createElement("div");
+  controls.className = "unassigned-controls";
+  const moveUp = actionButton("Up", "move-unassigned-image");
+  moveUp.dataset.filename = image.filename;
+  moveUp.dataset.direction = "-1";
+  moveUp.disabled = index === 0;
+  moveUp.setAttribute("aria-label", `Move ${image.filename} up`);
+  const moveDown = actionButton("Down", "move-unassigned-image");
+  moveDown.dataset.filename = image.filename;
+  moveDown.dataset.direction = "1";
+  moveDown.disabled = index === count - 1;
+  moveDown.setAttribute("aria-label", `Move ${image.filename} down`);
+  controls.append(moveUp, moveDown);
+
+  const descriptionSelection = document.createElement("label");
+  descriptionSelection.className = "description-selection";
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.dataset.action = "select-description-image";
+  checkbox.dataset.filename = image.filename;
+  checkbox.checked = options.selectedDescriptionFilenames.includes(image.filename);
+  checkbox.setAttribute("aria-label", `Select ${image.filename} for description editing`);
+  const checkboxLabel = document.createElement("span");
+  checkboxLabel.textContent = "Description";
+  descriptionSelection.append(checkbox, checkboxLabel);
+  controls.append(descriptionSelection);
+
   const hide = actionButton(image.hidden ? "Show" : "Hide", "toggle-hidden");
   hide.dataset.filename = image.filename;
   hide.dataset.hidden = String(!image.hidden);
   hide.setAttribute("aria-label", `${image.hidden ? "Show" : "Hide"} ${image.filename}`);
-  item.append(hide);
+  controls.append(hide);
+  item.append(controls);
   return item;
 }
 
@@ -285,12 +437,16 @@ function renderGroup(
   group: GroupEntry,
   index: number,
   placeholder: boolean,
+  preview: boolean,
   options: WorkspaceOptions
 ): HTMLElement {
   const card = document.createElement("article");
   card.className = `group-card${group.publicationStatus === "published" ? " published" : ""}`;
   if (placeholder) {
     card.classList.add("placeholder");
+  }
+  if (preview) {
+    card.classList.add("preview");
   }
   card.dataset.groupCard = "true";
   card.dataset.groupId = group.id;
@@ -310,7 +466,11 @@ function renderGroup(
   title.textContent = placeholder ? "New group" : `Group ${index + 1}`;
   const status = document.createElement("span");
   status.className = "group-status";
-  status.textContent = placeholder ? "Placeholder · not saved until used" : group.publicationStatus;
+  status.textContent = placeholder
+    ? "Placeholder · not saved until used"
+    : preview
+      ? "Preview · next published"
+      : group.publicationStatus;
   header.append(title, status);
 
   if (!placeholder) {
@@ -406,6 +566,14 @@ function renderPost(
     card.append(carousel);
   }
 
+  if (!placeholder) {
+    const effectiveLimit =
+      post.hashtagLimitOverride ?? options.defaultHashtagLimit;
+    card.append(
+      renderCaptionEditor(group, post, postIndex, published, effectiveLimit)
+    );
+  }
+
   const assign = actionButton(
     options.selectedImageFilename ? "Assign selected image" : "Select an image first",
     "assign-image"
@@ -415,6 +583,73 @@ function renderPost(
   assign.dataset.postIndex = String(postIndex);
   card.append(assign);
   return card;
+}
+
+function renderCaptionEditor(
+  group: GroupEntry,
+  post: PostEntry,
+  postIndex: number,
+  published: boolean,
+  effectiveLimit: number
+): HTMLElement {
+  const editor = document.createElement("div");
+  editor.className = "caption-editor";
+
+  if (!published) {
+    const descriptionLabel = document.createElement("label");
+    descriptionLabel.textContent = "Description";
+    const description = document.createElement("textarea");
+    description.rows = 3;
+    description.value = post.description;
+    description.dataset.postDescription = "true";
+    descriptionLabel.append(description);
+
+    const hashtagsLabel = document.createElement("label");
+    hashtagsLabel.textContent = "Hashtags (one per line)";
+    const hashtags = document.createElement("textarea");
+    hashtags.rows = 3;
+    hashtags.value = post.hashtags.join("\n");
+    hashtags.dataset.postHashtags = "true";
+    hashtagsLabel.append(hashtags);
+
+    const save = actionButton("Save caption", "save-post-content");
+    save.dataset.groupId = group.id;
+    save.dataset.postIndex = String(postIndex);
+    editor.append(descriptionLabel, hashtagsLabel, save);
+
+    const limitLabel = document.createElement("label");
+    limitLabel.textContent = "Hashtag limit override (blank uses project default)";
+    const limitInput = document.createElement("input");
+    limitInput.type = "number";
+    limitInput.min = "0";
+    limitInput.step = "1";
+    limitInput.value =
+      post.hashtagLimitOverride === null ? "" : String(post.hashtagLimitOverride);
+    limitInput.dataset.action = "set-post-limit";
+    limitInput.dataset.groupId = group.id;
+    limitInput.dataset.postIndex = String(postIndex);
+    limitLabel.append(limitInput);
+    editor.append(limitLabel);
+  }
+
+  const count = document.createElement("p");
+  count.className =
+    post.hashtags.length > effectiveLimit ? "hashtag-count over-limit" : "hashtag-count";
+  count.textContent = `${post.hashtags.length} / ${effectiveLimit} hashtags`;
+  if (post.hashtags.length > effectiveLimit) {
+    const warning = document.createElement("span");
+    warning.className = "hashtag-warning";
+    warning.textContent = "Limit exceeded. Hashtags were not removed.";
+    count.append(" ", warning);
+  }
+
+  const captionLabel = document.createElement("h5");
+  captionLabel.textContent = "Saved caption preview";
+  const caption = document.createElement("pre");
+  caption.className = "caption-preview";
+  caption.textContent = formatCaption(post.description, post.hashtags);
+  editor.append(count, captionLabel, caption);
+  return editor;
 }
 
 function renderCarouselItem(
@@ -482,11 +717,23 @@ function runButtonAction(button: HTMLButtonElement, actions: WorkspaceActions): 
         button.dataset.hidden === "true"
       );
       break;
+    case "move-unassigned-image":
+      actions.onMoveUnassignedImage(button.dataset.filename ?? "", direction);
+      break;
     case "toggle-hidden-list":
       actions.onToggleShowHidden();
       break;
+    case "apply-bulk-description":
+      actions.onApplyBulkDescription();
+      break;
     case "add-group":
       actions.onAddGroup();
+      break;
+    case "start-preview":
+      actions.onStartPreview(groupId);
+      break;
+    case "cancel-preview":
+      actions.onCancelPreview();
       break;
     case "insert-group":
       actions.onInsertGroup(Number(button.dataset.insertIndex));
@@ -515,6 +762,24 @@ function runButtonAction(button: HTMLButtonElement, actions: WorkspaceActions): 
     case "delete-group":
       actions.onDeleteGroup(groupId);
       break;
+    case "save-post-content": {
+      const card = button.closest<HTMLElement>("[data-post-card]");
+      const description = card?.querySelector<HTMLTextAreaElement>(
+        "[data-post-description]"
+      );
+      const hashtags = card?.querySelector<HTMLTextAreaElement>(
+        "[data-post-hashtags]"
+      );
+      if (description && hashtags) {
+        actions.onUpdatePost(
+          groupId,
+          postIndex,
+          description.value,
+          hashtags.value.split(/\r?\n/)
+        );
+      }
+      break;
+    }
   }
 
   if (button.dataset.action === "assign-image") {
@@ -595,21 +860,9 @@ function handleGroupDrop(
 function isDropTarget(target: Element): boolean {
   return (
     target.closest("[data-post-card]") !== null ||
-    target.closest("[data-group-card]") !== null
+    target.closest("[data-group-card]") !== null ||
+    target.closest("[data-image-filename]") !== null
   );
-}
-
-function compareUnassignedImages(left: ImageEntry, right: ImageEntry): number {
-  if (left.unassignedOrder !== null && right.unassignedOrder !== null) {
-    return left.unassignedOrder - right.unassignedOrder || left.filename.localeCompare(right.filename);
-  }
-  if (left.unassignedOrder !== null) {
-    return -1;
-  }
-  if (right.unassignedOrder !== null) {
-    return 1;
-  }
-  return left.filename.localeCompare(right.filename);
 }
 
 function actionButton(label: string, action: string): HTMLButtonElement {

@@ -23,6 +23,7 @@ This document distinguishes decisions supported by the planning conversation fro
 - Readiness requires all three post slots to contain at least one image. Publisher does not skip an incomplete top unpublished group.
 - Dictionary identifiers map to one or more hashtags; duplicate generated hashtags are removed.
 - Hashtags are initially derived from the first image only. Dictionary edits and lead-image changes do not regenerate saved hashtags.
+- Filename identifiers are split on commas, underscores, hyphens, and whitespace; the first token is ignored as the image ID; matching is case-insensitive.
 - Default hashtag limit is four, configurable, with per-post override and warning rather than truncation.
 - Unassigned images can have saved descriptions; bulk description assignment does not create posts.
 - Publisher attempts one group per run, has no `failed` status, and leaves unsuccessful/ambiguous groups unpublished.
@@ -85,9 +86,8 @@ Date: 2026-10-23
 ## Unresolved decisions to settle during implementation
 
 1. **Exact JSON contract:** review the proposed fields in `DATA_SCHEMA.md` during Phase 0, before publisher work.
-2. **Filename parsing details:** define separators, whitespace/case rules, and how to identify the image ID without treating it as a hashtag.
-3. **Publisher feasibility:** verify current official API eligibility, permissions, media transfer, token storage, success detection, and publication order before coding.
-4. **Description templates:** reusable templates were discussed as a possible convenience, but exact template behavior is not settled. Treat as optional and do not let it block core descriptions/captions.
+2. **Publisher feasibility:** verify current official API eligibility, permissions, media transfer, token storage, success detection, and publication order before coding.
+3. **Description templates:** reusable templates were discussed as a possible convenience, but exact template behavior is not settled. Treat as optional and do not let it block core descriptions/captions.
 
 ## Explicitly not approved
 

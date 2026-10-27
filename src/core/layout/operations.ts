@@ -1,5 +1,7 @@
 import { createEmptyGroup, createEmptyPost } from "../project/defaults";
 import type { GroupEntry, PostEntry, ProjectData } from "../project/types";
+import { generateHashtags } from "../hashtags/generateHashtags";
+import { sortUnassignedImages } from "../images/sortUnassignedImages";
 
 export const PLACEHOLDER_GROUP_ID = "__bottom_placeholder__";
 
@@ -41,9 +43,14 @@ export function assignImageToPost(
 
   const group = targetGroup ?? createEmptyGroup();
   const posts = [...group.posts] as GroupEntry["posts"];
+  const post = posts[postIndex];
   posts[postIndex] = {
-    ...posts[postIndex],
-    images: [...posts[postIndex].images, filename]
+    ...post,
+    images: [...post.images, filename],
+    hashtags:
+      post.images.length === 0 && post.hashtags.length === 0
+      ? generateHashtags(filename, project.dictionary)
+        : post.hashtags
   };
   const updatedGroup = withReadiness({ ...group, posts });
   const groups = isPlaceholder
@@ -52,7 +59,87 @@ export function assignImageToPost(
         candidate.id === groupId ? updatedGroup : candidate
       );
 
-  return success({ ...project, groups });
+  const images = project.images.map((image) =>
+    image.filename === filename ? { ...image, unassignedOrder: null } : image
+  );
+  return success({ ...project, groups, images });
+}
+
+export function moveUnassignedImageTo(
+  project: ProjectData,
+  sourceFilename: string,
+  targetFilename: string,
+  insertAfter: boolean,
+  visibleFilenames?: string[]
+): LayoutOperationResult {
+  const assignedFilenames = getAssignedFilenames(project);
+  const allUnassigned = sortUnassignedImages(
+    project.images.filter((image) => !assignedFilenames.has(image.filename))
+  );
+  const visibleSet = new Set(visibleFilenames ?? allUnassigned.map((image) => image.filename));
+  const visible = allUnassigned.filter((image) => visibleSet.has(image.filename));
+  const sourceIndex = visible.findIndex((image) => image.filename === sourceFilename);
+  const targetIndex = visible.findIndex((image) => image.filename === targetFilename);
+  if (
+    sourceIndex < 0 ||
+    targetIndex < 0 ||
+    sourceIndex === targetIndex ||
+    (visibleFilenames ?? []).some((filename) => {
+      const image = project.images.find((candidate) => candidate.filename === filename);
+      return !image || assignedFilenames.has(filename);
+    })
+  ) {
+    return failure("The selected unassigned images are no longer available.");
+  }
+
+  const [source] = visible.splice(sourceIndex, 1);
+  const destinationIndex = visible.findIndex((image) => image.filename === targetFilename);
+  visible.splice(destinationIndex + (insertAfter ? 1 : 0), 0, source);
+  const visibleFilenamesSet = new Set(visible.map((image) => image.filename));
+  let visibleIndex = 0;
+  const reorderedUnassigned = allUnassigned.map((image) =>
+    visibleFilenamesSet.has(image.filename) ? visible[visibleIndex++] : image
+  );
+  const orderByFilename = new Map(
+    reorderedUnassigned.map((image, index) => [image.filename, index])
+  );
+
+  return success({
+    ...project,
+    images: project.images.map((image) => {
+      const order = orderByFilename.get(image.filename);
+      return order === undefined ? image : { ...image, unassignedOrder: order };
+    })
+  });
+}
+
+export function moveUnassignedImage(
+  project: ProjectData,
+  filename: string,
+  direction: -1 | 1,
+  visibleFilenames?: string[]
+): LayoutOperationResult {
+  const assignedFilenames = getAssignedFilenames(project);
+  const unassigned = sortUnassignedImages(
+    project.images.filter(
+      (image) =>
+        !assignedFilenames.has(image.filename) &&
+        (visibleFilenames === undefined || visibleFilenames.includes(image.filename))
+    )
+  );
+  const sourceIndex = unassigned.findIndex((image) => image.filename === filename);
+  const target = unassigned[sourceIndex + direction];
+  if (sourceIndex < 0 || !target) {
+    return failure("The unassigned image cannot be moved any farther in that direction.");
+  }
+
+  return moveUnassignedImageTo(
+    project,
+    filename,
+    target.filename,
+    direction === 1,
+    unassigned.map((image) => image.filename)
+  );
 }
 
 export function setImageHidden(
