@@ -21,15 +21,20 @@ reported as saved after both the write and close complete successfully.
 The Phase 2 shell imports only a user-selected JSON file and activates it only after parsing
 and validation succeed. On browsers with the Save File Picker API, saving asks the user to
 choose a destination. Otherwise, export starts a JSON download with an editable numbered
-filename. The app does not enumerate the project folder, so it cannot guarantee that the
-suggested export sequence is unused; the user must choose a non-conflicting name.
+filename. The app does not check the selected folder for existing export JSON filenames, so
+it cannot guarantee that the suggested export sequence is unused; the user must choose a
+non-conflicting name.
 Loading a project reports that it was loaded; it is not reported as a new save operation.
 
-Image discovery is explicit. Browsers exposing directory selection can reconcile against a
-user-selected folder. When only individual file selection is available, selected images are
-added without treating other catalog entries as missing. Folder reconciliation reports and
-leaves duplicate basenames unresolved until the user chooses the intended relative path. The
-choice is session-only because the v1 project schema stores filenames, not relative paths.
+Image discovery is explicit. In Chrome and other browsers exposing the File System Access
+directory picker, the app requests read-only access to a folder selected by the user, reads
+its image files in the browser, and displays them in the planner. The image bytes are not
+uploaded. Browsers without that API may use a directory file input, whose native chooser may
+use generic “upload” wording; that wording does not mean the app sends the files to a server.
+When only individual file selection is available, selected images are added without treating
+other catalog entries as missing. Folder reconciliation reports and leaves duplicate basenames
+unresolved until the user chooses the intended relative path. The choice is session-only
+because the v1 project schema stores filenames, not relative paths.
 
 Do not claim autosave succeeded unless the browser reports successful completion of the write. The UI must distinguish:
 - changes not yet saved/exported,

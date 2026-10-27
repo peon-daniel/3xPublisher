@@ -1,6 +1,8 @@
 import "./styles.css";
 import { detectFileAccessCapabilities } from "./adapters/fileAccess/capabilities";
 import { readSelectedProjectFile } from "./adapters/fileAccess/readers";
+import { readSelectedDirectory } from "./adapters/fileAccess/readSelectedDirectory";
+import type { SelectedDirectoryFile } from "./adapters/fileAccess/readSelectedDirectory";
 import { downloadTextFile, saveWithFilePicker } from "./adapters/fileAccess/writers";
 import { getNextNumberedExportFilename } from "./core/io/fileNaming";
 import { importProject } from "./core/io/importProject";
@@ -82,8 +84,11 @@ app.innerHTML = `
       <label for="image-files">Add selected image files</label>
       <input id="image-files" type="file" accept="image/*" multiple />
       <div id="folder-picker">
-        <label for="image-folder">Reconcile against a selected project image folder</label>
-        <input id="image-folder" type="file" accept="image/*" multiple webkitdirectory />
+        <button id="choose-image-folder" type="button">Choose image folder on this device</button>
+        <div id="folder-input-fallback">
+          <label for="image-folder">Reconcile against a selected project image folder</label>
+          <input id="image-folder" type="file" accept="image/*" multiple webkitdirectory />
+        </div>
       </div>
       <p id="folder-help" class="help-text"></p>
       <p id="image-summary" class="summary"></p>
@@ -106,6 +111,8 @@ const summary = requireElement<HTMLParagraphElement>("#project-summary");
 const imageFilesInput = requireElement<HTMLInputElement>("#image-files");
 const imageFolderInput = requireElement<HTMLInputElement>("#image-folder");
 const folderPicker = requireElement<HTMLDivElement>("#folder-picker");
+const folderInputFallback = requireElement<HTMLDivElement>("#folder-input-fallback");
+const chooseImageFolderButton = requireElement<HTMLButtonElement>("#choose-image-folder");
 const folderHelp = requireElement<HTMLParagraphElement>("#folder-help");
 const imageSummary = requireElement<HTMLParagraphElement>("#image-summary");
 const imageReport = requireElement<HTMLUListElement>("#image-report");
@@ -136,10 +143,12 @@ let dictionaryMessage = "";
 let activeTab: "planner" | "dictionary" = "planner";
 let previewGroupId: string | null = null;
 
-folderPicker.hidden = !capabilities.directoryInput;
-folderHelp.textContent = capabilities.directoryInput
-  ? "Folder reconciliation uses exact filenames. You can choose a relative path for duplicate filenames; that choice is session-only."
-  : "Folder scanning is unavailable in this browser. Add image files manually; files not selected will not be marked missing.";
+folderPicker.hidden = !capabilities.directoryPicker && !capabilities.directoryInput;
+chooseImageFolderButton.hidden = !capabilities.directoryPicker;
+folderInputFallback.hidden = capabilities.directoryPicker || !capabilities.directoryInput;
+folderHelp.textContent = capabilities.directoryPicker || capabilities.directoryInput
+  ? "The selected folder is read in your browser on this device; images are not uploaded. Choose the project image folder: references to images missing from it may be removed from the project."
+  : "Folder scanning is unavailable in this browser. Select image files manually; files not selected will not be marked missing.";
 exportFilename.value = nextExportFilename();
 bindWorkspaceEvents(workspaceRoot, createWorkspaceActions());
 plannerTab.addEventListener("click", () => setActiveTab("planner"));
@@ -216,6 +225,21 @@ imageFilesInput.addEventListener("change", () => {
 imageFolderInput.addEventListener("change", () => {
   reconcileSelectedFiles(imageFolderInput.files, capabilities.directoryInput);
   imageFolderInput.value = "";
+});
+
+chooseImageFolderButton.addEventListener("click", async () => {
+  chooseImageFolderButton.disabled = true;
+  const result = await readSelectedDirectory();
+  chooseImageFolderButton.disabled = false;
+  if (!result.ok) {
+    if ("error" in result) {
+      lastMessage = result.error;
+      render();
+    }
+    return;
+  }
+
+  reconcileSelectedImages(result.files, true);
 });
 
 document.addEventListener("keydown", (event) => {
@@ -306,13 +330,25 @@ function nextExportFilename(): string {
 }
 
 function reconcileSelectedFiles(files: FileList | null, sourceComplete: boolean): void {
-  const selectedFiles = Array.from(files ?? []);
+  reconcileSelectedImages(
+    Array.from(files ?? []).map((file) => ({
+      file,
+      relativePath: file.webkitRelativePath || file.name
+    })),
+    sourceComplete
+  );
+}
+
+function reconcileSelectedImages(
+  selectedFiles: SelectedDirectoryFile[],
+  sourceComplete: boolean
+): void {
   cachePreviewSources(selectedFiles);
   const discoveredImages = discoverSelectedImages(
-    selectedFiles.map((file) => ({
+    selectedFiles.map(({ file, relativePath }) => ({
       name: file.name,
       type: file.type,
-      relativePath: file.webkitRelativePath
+      relativePath
     }))
   );
 
@@ -830,13 +866,12 @@ function setOperationError(message: string): void {
   render();
 }
 
-function cachePreviewSources(files: File[]): void {
-  for (const file of files) {
+function cachePreviewSources(selectedFiles: SelectedDirectoryFile[]): void {
+  for (const { file, relativePath } of selectedFiles) {
     if (!isSupportedImageFile(file)) {
       continue;
     }
 
-    const relativePath = file.webkitRelativePath || file.name;
     const previous = previewSources.get(relativePath);
     if (previous) {
       URL.revokeObjectURL(previous.url);

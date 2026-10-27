@@ -89,6 +89,28 @@ p {
   font: inherit;
 }
 
+#choose-image-folder {
+  justify-self: start;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 6px;
+  color: #ffffff;
+  background: #1f4f82;
+  font: inherit;
+  cursor: pointer;
+}
+
+#choose-image-folder:focus-visible {
+  outline: 3px solid #f59e0b;
+  outline-offset: 2px;
+}
+
+#choose-image-folder:disabled {
+  background: #4b5563;
+  cursor: wait;
+}
+
 .image-catalog [hidden] {
   display: none;
 }

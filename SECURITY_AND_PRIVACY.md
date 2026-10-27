@@ -24,6 +24,7 @@
 ## Browser and file access
 
 - Request access only after a user action and only to files/folders needed for the selected project.
+- Read selected image folders locally in the browser using read-only access; do not transmit their contents.
 - Respect browser permission boundaries.
 - Do not silently upload local files or overwrite user files.
 - Make save/export destinations and results explicit.
