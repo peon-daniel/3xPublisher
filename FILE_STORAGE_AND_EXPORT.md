@@ -4,11 +4,19 @@
 
 The portable JSON project file stored alongside the images is the intended source of truth for project state. Browser storage may support recovery but must not be the only copy of the project.
 
-Canonical proposed filename: `instagram-plan.json`. Numbered exports should use an incremental, documented pattern. If the app cannot reliably identify the newest version, ask the user to select the intended JSON instead of guessing.
+Canonical proposed filename: `instagram-plan.json`. Numbered exports start at
+`instagram-plan-001.json` and increment the highest recognized existing sequence by one,
+using at least three digits. If the app cannot reliably identify the newest version, ask the
+user to select the intended JSON instead of guessing.
 
 ## Browser constraints
 
 A static website cannot universally assume permission to enumerate, create, or overwrite arbitrary files in a local folder. Use browser-supported file/directory picker APIs only when available and authorized. Provide a download/export fallback.
+
+The file-access capability check reports the Open/Save/Directory Picker APIs and browser
+download support independently. Reading an explicitly selected `File` does not require the
+File System Access API. Direct writes use a user-selected writable file handle and are only
+reported as saved after both the write and close complete successfully.
 
 Do not claim autosave succeeded unless the browser reports successful completion of the write. The UI must distinguish:
 - changes not yet saved/exported,
@@ -16,12 +24,18 @@ Do not claim autosave succeeded unless the browser reports successful completion
 - exported/downloaded but not yet copied back into the project folder,
 - save/export failure.
 
+After the browser download request is triggered, the dirty indicator clears because the current
+state has been handed off for export. The browser does not report whether the user completed
+the download or copied the file into the project folder, so the UI must describe it as an
+initiated download that still needs copying—not as a save to the selected project file.
+
 ## Save behavior
 
 - Track changes to layout, descriptions, hashtags, hidden state, dictionary, and settings.
 - Show a red unsaved notice whenever current state differs from the last successfully persisted/exported state.
 - If direct write access is available and the user granted permission, autosave may be used.
 - If direct write is unavailable, provide an explicit export/download action and explain that the user must place the downloaded JSON in the project folder.
+- A successfully initiated export clears the dirty flag and sets the status to exported/downloaded-needs-copy. Any later edit makes the project dirty again.
 - Never overwrite an existing file without a supported, explicit user-authorized operation.
 - Keep the previous project file intact if writing fails.
 - Export valid UTF-8 JSON with a schema version.

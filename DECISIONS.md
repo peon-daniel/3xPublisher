@@ -75,13 +75,19 @@ Date: 2026-10-23
 - Numbered exports use zero-padded three digits: `instagram-plan-001.json`, `instagram-plan-002.json`, and so on.
 - If multiple candidate JSON files are present and the newest cannot be determined unambiguously from accessible metadata, require explicit user selection.
 
+## Phase 2 decisions (approved)
+
+- Date: 2026-10-27
+- A successful write to the selected project file clears the dirty flag and reports `saved-to-selected-file`.
+- A successfully initiated JSON download clears the dirty flag and reports `exported-download-needs-copy`; the browser cannot confirm that the user completed the download, and the user is still told to copy it into the project folder.
+- Any later edit marks the project dirty again. A failed write/export retains dirty state.
+
 ## Unresolved decisions to settle during implementation
 
 1. **Exact JSON contract:** review the proposed fields in `DATA_SCHEMA.md` during Phase 0, before publisher work.
 2. **Filename parsing details:** define separators, whitespace/case rules, and how to identify the image ID without treating it as a hashtag.
 3. **Publisher feasibility:** verify current official API eligibility, permissions, media transfer, token storage, success detection, and publication order before coding.
 4. **Description templates:** reusable templates were discussed as a possible convenience, but exact template behavior is not settled. Treat as optional and do not let it block core descriptions/captions.
-5. **Exact save-state semantics:** distinguish saved-to-source-file from downloaded-export state; decide whether export clears dirty state or indicates “downloaded, needs copying” separately.
 
 ## Explicitly not approved
 
