@@ -7,13 +7,28 @@ import { importProject } from "./core/io/importProject";
 import { createPersistenceState, transitionPersistenceState } from "./core/io/persistState";
 import { serializeProject } from "./core/io/serializeProject";
 import { createEmptyProject } from "./core/project/defaults";
-import { discoverSelectedImages } from "./core/images/discoverImages";
+import { discoverSelectedImages, isSupportedImageFile } from "./core/images/discoverImages";
 import {
   applyImagePathResolutions,
   reconcileProjectImages
 } from "./core/images/reconcileProjectImages";
 import type { DiscoveredImage } from "./core/images/discoverImages";
 import type { AmbiguousImageFilename } from "./core/images/reconcileProjectImages";
+import {
+  assignImageToPost,
+  deleteGroup,
+  insertGroup,
+  moveCarouselImage,
+  moveGroup,
+  movePostToEmptySlot,
+  movePostWithinGroup,
+  PLACEHOLDER_GROUP_ID,
+  removeImageFromPost,
+  setImageHidden
+} from "./core/layout/operations";
+import type { LayoutOperationResult } from "./core/layout/operations";
+import { bindWorkspaceEvents, renderWorkspace } from "./ui/workspace";
+import type { WorkspaceActions, WorkspaceSelection } from "./ui/workspace";
 import type { PersistenceEvent, PersistenceState } from "./core/io/persistState";
 import type { ProjectData } from "./core/project/types";
 
@@ -53,6 +68,7 @@ app.innerHTML = `
       <p id="image-summary" class="summary"></p>
       <ul id="image-report" class="image-report" aria-live="polite"></ul>
     </section>
+    <div id="workspace-root"></div>
   </main>
 `;
 
@@ -68,6 +84,7 @@ const folderPicker = requireElement<HTMLDivElement>("#folder-picker");
 const folderHelp = requireElement<HTMLParagraphElement>("#folder-help");
 const imageSummary = requireElement<HTMLParagraphElement>("#image-summary");
 const imageReport = requireElement<HTMLUListElement>("#image-report");
+const workspaceRoot = requireElement<HTMLDivElement>("#workspace-root");
 
 let project: ProjectData = createEmptyProject();
 let persistence: PersistenceState = createPersistenceState();
@@ -78,12 +95,17 @@ let latestDiscoveredImages: DiscoveredImage[] = [];
 let latestSourceComplete = false;
 const resolvedImagePaths = new Map<string, string>();
 const knownExportFilenames = new Set<string>();
+const previewSources = new Map<string, { filename: string; url: string }>();
+let showHidden = false;
+let selectedImageFilename: string | null = null;
+let workspaceSelection: WorkspaceSelection = null;
 
 folderPicker.hidden = !capabilities.directoryInput;
 folderHelp.textContent = capabilities.directoryInput
   ? "Folder reconciliation uses exact filenames. You can choose a relative path for duplicate filenames; that choice is session-only."
   : "Folder scanning is unavailable in this browser. Add image files manually; files not selected will not be marked missing.";
 exportFilename.value = nextExportFilename();
+bindWorkspaceEvents(workspaceRoot, createWorkspaceActions());
 render();
 
 fileInput.addEventListener("change", async () => {
@@ -109,11 +131,15 @@ fileInput.addEventListener("change", async () => {
 
   project = result.project;
   persistence = transitionPersistenceState(persistence, "loaded-from-selected-file");
+  clearPreviewSources();
   knownExportFilenames.add(readResult.filename);
   exportFilename.value = nextExportFilename();
   lastImageReport = [];
   lastAmbiguities = [];
   resolvedImagePaths.clear();
+  selectedImageFilename = null;
+  workspaceSelection = null;
+  showHidden = false;
   lastMessage =
     result.warnings.length > 0
       ? `Loaded "${readResult.filename}" with warnings: ${result.warnings.join(" ")}`
@@ -124,10 +150,14 @@ fileInput.addEventListener("change", async () => {
 newProjectButton.addEventListener("click", () => {
   project = createEmptyProject();
   persistence = transitionPersistenceState(persistence, "project-changed");
+  clearPreviewSources();
   exportFilename.value = nextExportFilename();
   lastImageReport = [];
   lastAmbiguities = [];
   resolvedImagePaths.clear();
+  selectedImageFilename = null;
+  workspaceSelection = null;
+  showHidden = false;
   lastMessage = "New project created. Changes have not been saved.";
   render();
 });
@@ -140,6 +170,31 @@ imageFilesInput.addEventListener("change", () => {
 imageFolderInput.addEventListener("change", () => {
   reconcileSelectedFiles(imageFolderInput.files, capabilities.directoryInput);
   imageFolderInput.value = "";
+});
+
+document.addEventListener("keydown", (event) => {
+  if (
+    (event.key !== "ArrowUp" && event.key !== "ArrowDown") ||
+    isEditingElement(event.target) ||
+    !workspaceSelection
+  ) {
+    return;
+  }
+
+  const direction = event.key === "ArrowUp" ? -1 : 1;
+  event.preventDefault();
+  if (workspaceSelection.kind === "group") {
+    applyLayoutResult(moveGroup(project, workspaceSelection.groupId, direction));
+  } else {
+    applyLayoutResult(
+      movePostWithinGroup(
+        project,
+        workspaceSelection.groupId,
+        workspaceSelection.postIndex,
+        direction
+      )
+    );
+  }
 });
 
 saveButton.addEventListener("click", async () => {
@@ -206,6 +261,7 @@ function nextExportFilename(): string {
 
 function reconcileSelectedFiles(files: FileList | null, sourceComplete: boolean): void {
   const selectedFiles = Array.from(files ?? []);
+  cachePreviewSources(selectedFiles);
   const discoveredImages = discoverSelectedImages(
     selectedFiles.map((file) => ({
       name: file.name,
@@ -311,6 +367,9 @@ function render(): void {
   const assignedFilenames = new Set(project.groups.flatMap((group) => group.posts.flatMap((post) => post.images)));
   const unassignedCount = project.images.filter((image) => !assignedFilenames.has(image.filename)).length;
   imageSummary.textContent = `${project.images.length} catalog image(s) · ${unassignedCount} unassigned`;
+  const hiddenCount = project.images.filter(
+    (image) => image.hidden && !assignedFilenames.has(image.filename)
+  ).length;
   imageReport.replaceChildren();
   for (const message of lastImageReport) {
     const item = document.createElement("li");
@@ -354,6 +413,239 @@ function render(): void {
     item.append(message, select, resolveButton);
     imageReport.append(item);
   }
+
+  renderWorkspace(workspaceRoot, {
+    project,
+    selectedImageFilename,
+    showHidden,
+    hiddenCount,
+    selection: workspaceSelection,
+    imageUrlForFilename
+  });
+}
+
+function createWorkspaceActions(): WorkspaceActions {
+  return {
+    onSelectImage(filename) {
+      selectedImageFilename = selectedImageFilename === filename ? null : filename;
+      render();
+    },
+    onSelectionChange(selection) {
+      workspaceSelection = selection;
+      render();
+    },
+    onToggleShowHidden() {
+      showHidden = !showHidden;
+      render();
+    },
+    onToggleHidden(filename, hidden) {
+      applyLayoutResult(setImageHidden(project, filename, hidden));
+    },
+    onMoveGroupToIndex(groupId, insertionIndex) {
+      const sourceIndex = project.groups.findIndex((group) => group.id === groupId);
+      if (sourceIndex < 0) {
+        setOperationError("The selected group no longer exists.");
+        return;
+      }
+
+      const finalIndex = insertionIndex - (sourceIndex < insertionIndex ? 1 : 0);
+      let workingProject = project;
+      let currentIndex = sourceIndex;
+      while (currentIndex !== finalIndex) {
+        const direction = finalIndex > currentIndex ? 1 : -1;
+        const result = moveGroup(workingProject, groupId, direction);
+        if (!result.ok) {
+          setOperationError(result.error);
+          return;
+        }
+        workingProject = result.project;
+        currentIndex += direction;
+      }
+      if (workingProject !== project) {
+        applyLayoutResult({ ok: true, project: workingProject });
+      }
+    },
+    onMovePostToSlot(sourceGroupId, sourcePostIndex, targetGroupId, targetPostIndex) {
+      if (sourceGroupId === targetGroupId) {
+        let workingProject = project;
+        let currentIndex = sourcePostIndex;
+        while (currentIndex !== targetPostIndex) {
+          const direction = targetPostIndex > currentIndex ? 1 : -1;
+          const result = movePostWithinGroup(
+            workingProject,
+            sourceGroupId,
+            currentIndex,
+            direction
+          );
+          if (!result.ok) {
+            setOperationError(result.error);
+            return;
+          }
+          workingProject = result.project;
+          currentIndex += direction;
+        }
+        if (workingProject !== project) {
+          applyLayoutResult({ ok: true, project: workingProject });
+        }
+        return;
+      }
+      applyLayoutResult(
+        movePostToEmptySlot(
+          project,
+          sourceGroupId,
+          sourcePostIndex,
+          targetGroupId,
+          targetPostIndex
+        )
+      );
+    },
+    onMoveCarouselToIndex(groupId, postIndex, sourceImageIndex, targetImageIndex) {
+      const group = project.groups.find((candidate) => candidate.id === groupId);
+      if (!group || !group.posts[postIndex]) {
+        setOperationError("The selected carousel no longer exists.");
+        return;
+      }
+
+      let workingProject = project;
+      let currentIndex = sourceImageIndex;
+      const finalIndex = Math.min(
+        targetImageIndex,
+        group.posts[postIndex].images.length - 1
+      );
+      while (currentIndex !== finalIndex) {
+        const direction = finalIndex > currentIndex ? 1 : -1;
+        const result = moveCarouselImage(
+          workingProject,
+          groupId,
+          postIndex,
+          currentIndex,
+          direction
+        );
+        if (!result.ok) {
+          setOperationError(result.error);
+          return;
+        }
+        workingProject = result.project;
+        currentIndex += direction;
+      }
+      if (workingProject !== project) {
+        applyLayoutResult({ ok: true, project: workingProject });
+      }
+    },
+    onInsertGroup(index) {
+      applyLayoutResult(insertGroup(project, index));
+    },
+    onDeleteGroup(groupId) {
+      const result = deleteGroup(project, groupId);
+      if (!result.ok && result.reason === "confirmation-required") {
+        if (window.confirm(result.error)) {
+          applyLayoutResult(deleteGroup(project, groupId, true));
+        }
+        return;
+      }
+      applyLayoutResult(result);
+    },
+    onAssignImage(filename, groupId, postIndex) {
+      applyLayoutResult(assignImageToPost(project, filename, groupId, postIndex));
+    },
+    onRemoveImage(groupId, postIndex, imageIndex) {
+      applyLayoutResult(removeImageFromPost(project, groupId, postIndex, imageIndex));
+    },
+    onMoveCarouselImage(groupId, postIndex, imageIndex, direction) {
+      applyLayoutResult(moveCarouselImage(project, groupId, postIndex, imageIndex, direction));
+    },
+    onMoveGroup(groupId, direction) {
+      applyLayoutResult(moveGroup(project, groupId, direction));
+    },
+    onMovePost(groupId, postIndex, direction) {
+      applyLayoutResult(movePostWithinGroup(project, groupId, postIndex, direction));
+    },
+    onAddGroup() {
+      applyLayoutResult(insertGroup(project, project.groups.length));
+    }
+  };
+}
+
+function applyLayoutResult(
+  result: LayoutOperationResult,
+  successMessage = "Project layout updated."
+): void {
+  if (!result.ok) {
+    setOperationError(result.error);
+    return;
+  }
+
+  project = result.project;
+  persistence = transitionPersistenceState(persistence, "project-changed");
+  selectedImageFilename = null;
+  lastMessage = successMessage;
+  render();
+}
+
+function setOperationError(message: string): void {
+  lastMessage = message;
+  render();
+}
+
+function cachePreviewSources(files: File[]): void {
+  for (const file of files) {
+    if (!isSupportedImageFile(file)) {
+      continue;
+    }
+
+    const relativePath = file.webkitRelativePath || file.name;
+    const previous = previewSources.get(relativePath);
+    if (previous) {
+      URL.revokeObjectURL(previous.url);
+    }
+    previewSources.set(relativePath, {
+      filename: file.name,
+      url: URL.createObjectURL(file)
+    });
+  }
+}
+
+function clearPreviewSources(): void {
+  for (const source of previewSources.values()) {
+    URL.revokeObjectURL(source.url);
+  }
+  previewSources.clear();
+  latestDiscoveredImages = [];
+  latestSourceComplete = false;
+}
+
+function imageUrlForFilename(filename: string): string | undefined {
+  const resolvedPath = resolvedImagePaths.get(filename);
+  if (resolvedPath) {
+    const resolvedSource = previewSources.get(resolvedPath);
+    if (resolvedSource?.filename === filename) {
+      return resolvedSource.url;
+    }
+  }
+
+  const currentlyDiscovered = latestDiscoveredImages.filter(
+    (image) => image.filename === filename
+  );
+  if (currentlyDiscovered.length === 1) {
+    return previewSources.get(currentlyDiscovered[0].relativePath)?.url;
+  }
+
+  const matches = Array.from(previewSources.values()).filter(
+    (source) => source.filename === filename
+  );
+  return matches.length === 1 ? matches[0].url : undefined;
+}
+
+function isEditingElement(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement
+  );
 }
 
 function statusLabel(value: PersistenceState["status"]): string {
